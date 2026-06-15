@@ -6,313 +6,336 @@
 <title>Office Lunch Orders</title>
 <style>
   :root{
-    --bg:#f4f6fb; --bg2:#eef1f8; --card:#ffffff; --line:#e6e9f0;
-    --ink:#10131a; --muted:#697086; --soft:#9aa1b2;
+    --bg:#f6f7fb; --panel:#ffffff; --sidebar:#0f1729; --sidebar-2:#1b2540; --line:#e7e9f1;
+    --ink:#0f1729; --muted:#6b7280; --soft:#9aa3b2;
     --brand:#4f46e5; --brand-d:#4338ca; --brand-soft:#eef0ff;
-    --ok:#0f9d58; --ok-soft:#e7f6ee; --warn:#c47d00; --warn-soft:#fdf3e2;
-    --bad:#dc2626; --bad-soft:#fdecec;
-    --shadow:0 1px 2px rgba(16,19,26,.04),0 8px 24px rgba(16,19,26,.06);
-    --radius:16px;
+    --ok:#10b981; --ok-soft:#e7f8f1; --warn:#f59e0b; --warn-soft:#fef5e7; --bad:#ef4444; --bad-soft:#fdecec;
+    --info:#0ea5e9; --info-soft:#e6f6fe;
+    --shadow:0 1px 2px rgba(16,23,41,.04),0 10px 30px rgba(16,23,41,.07);
+    --shadow-sm:0 1px 2px rgba(16,23,41,.06);
+    --r:16px; --r-sm:11px;
   }
   *{box-sizing:border-box}
-  html,body{margin:0}
-  body{
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
-    color:var(--ink); background:linear-gradient(180deg,var(--bg),var(--bg2)); min-height:100vh;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:860px;margin:0 auto;padding:0 16px}
-  .topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.85);backdrop-filter:saturate(160%) blur(10px);border-bottom:1px solid var(--line)}
-  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.01em}
-  .brand .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#7c6cff);display:grid;place-items:center;color:#fff;font-size:18px;box-shadow:var(--shadow)}
+  html,body{margin:0;height:100%}
+  body{font:14.5px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  /* layout */
+  .app{display:flex;min-height:100vh}
+  .sidebar{width:236px;background:linear-gradient(180deg,var(--sidebar),var(--sidebar-2));color:#cdd5e6;display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:40;transition:transform .25s}
+  .sidebar .logo{display:flex;align-items:center;gap:11px;padding:20px 18px;font-weight:700;color:#fff;font-size:16px}
+  .sidebar .logo .mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#7c6cff);display:grid;place-items:center;font-size:18px}
+  .nav{padding:8px 12px;display:flex;flex-direction:column;gap:3px}
+  .nav button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:0;background:transparent;color:#aeb8cd;font-size:14px;font-weight:500;padding:11px 13px;border-radius:10px;cursor:pointer;transition:.15s}
+  .nav button .i{width:20px;text-align:center;font-size:15px}
+  .nav button:hover{background:rgba(255,255,255,.06);color:#fff}
+  .nav button.active{background:var(--brand);color:#fff;box-shadow:var(--shadow-sm)}
+  .sidebar .foot{margin-top:auto;padding:16px 18px;font-size:11.5px;color:#6b7793;border-top:1px solid rgba(255,255,255,.07)}
+  .main{flex:1;margin-left:236px;min-width:0;display:flex;flex-direction:column}
+  .appbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.85);backdrop-filter:saturate(160%) blur(10px);border-bottom:1px solid var(--line);height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+  .appbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .hb{display:none;border:0;background:transparent;font-size:22px;cursor:pointer;color:var(--ink)}
   .userchip{display:flex;align-items:center;gap:10px}
-  .avatar{width:32px;height:32px;border-radius:50%;background:var(--brand-soft);color:var(--brand-d);display:grid;place-items:center;font-weight:700;font-size:13px}
-  .userchip .meta{font-size:13px;line-height:1.2}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--brand-soft);color:var(--brand-d);display:grid;place-items:center;font-weight:700;font-size:13px}
+  .userchip .meta{font-size:12.5px;line-height:1.2;text-align:right}
   .userchip .meta b{display:block;font-weight:600}
   .userchip .meta span{color:var(--muted);text-transform:capitalize}
-  .tabs{display:flex;gap:6px;margin:18px 0 16px;background:var(--card);border:1px solid var(--line);padding:6px;border-radius:14px;box-shadow:var(--shadow);width:fit-content;max-width:100%;overflow:auto}
-  .tabs button{border:0;background:transparent;color:var(--muted);font-weight:600;font-size:14px;padding:9px 16px;border-radius:10px;cursor:pointer;white-space:nowrap}
-  .tabs button.active{background:var(--brand);color:#fff;box-shadow:var(--shadow)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin-bottom:18px}
-  .card h2{font-size:16px;margin:0 0 4px;letter-spacing:-.01em}
-  .card .sub{color:var(--muted);font-size:13px;margin:0 0 16px}
-  .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-  .card-head h2{margin:0}
+  .content{padding:24px 22px 40px;max-width:980px;width:100%}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(15,23,41,.45);z-index:35}
+  /* cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:22px;margin-bottom:18px;animation:fadeUp .3s ease both}
+  .card h2{font-size:15.5px;margin:0;letter-spacing:-.01em}
+  .card .sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+  .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  /* stat tiles */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px;animation:pop .3s ease both}
+  .stat .l{color:var(--muted);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .stat .v{font-size:25px;font-weight:750;margin-top:7px;letter-spacing:-.02em}
+  .stat .v small{font-size:14px;color:var(--soft);font-weight:600}
+  /* form */
   label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:12px 0 6px}
-  input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;color:var(--ink);transition:border .15s,box-shadow .15s}
-  input:focus,select:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:14px;background:#fff;color:var(--ink);font-family:inherit;transition:.15s}
+  textarea{resize:vertical;min-height:64px}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .row{display:flex;gap:10px;align-items:center}
-  .wrap-row{flex-wrap:wrap}
-  .btn{appearance:none;border:0;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff;transition:transform .04s,background .15s,opacity .15s;display:inline-flex;align-items:center;gap:7px;justify-content:center}
-  .btn:hover{background:var(--brand-d)}
-  .btn:active{transform:translateY(1px)}
-  .btn.ghost{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
-  .btn.ghost:hover{background:#e9edf6}
-  .btn.danger{background:var(--bad)} .btn.danger:hover{background:#b91c1c}
-  .btn.ok{background:var(--ok)} .btn.ok:hover{background:#0c8a4d}
+  .row{display:flex;gap:10px;align-items:center}.wrap-row{flex-wrap:wrap}
+  /* buttons */
+  .btn{appearance:none;border:0;border-radius:var(--r-sm);padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff;display:inline-flex;align-items:center;gap:7px;justify-content:center;transition:.15s}
+  .btn:hover{background:var(--brand-d);transform:translateY(-1px)}
+  .btn:active{transform:none}
+  .btn.ghost{background:#f1f3f9;color:var(--ink)} .btn.ghost:hover{background:#e7eaf3}
+  .btn.ok{background:var(--ok)} .btn.ok:hover{background:#0e9f74}
+  .btn.danger{background:var(--bad)} .btn.danger:hover{background:#dc2626}
   .btn.sm{padding:7px 11px;font-size:13px;border-radius:9px}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-  .btn.block{width:100%}
-  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:99px;font-size:12px;font-weight:600}
-  .pill.open{background:var(--ok-soft);color:var(--ok)} .pill.closed{background:var(--bad-soft);color:var(--bad)}
-  .pill.paid{background:var(--ok-soft);color:var(--ok)} .pill.due{background:var(--warn-soft);color:var(--warn)}
-  .pill.neutral{background:var(--brand-soft);color:var(--brand-d)}
-  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
-  .msg{padding:11px 13px;border-radius:11px;font-size:13.5px;margin:12px 0;display:flex;gap:8px;align-items:flex-start}
-  .msg.err{background:var(--bad-soft);color:#a31515} .msg.ok{background:var(--ok-soft);color:#0b7a43} .msg.info{background:var(--brand-soft);color:var(--brand-d)}
+  .btn.block{width:100%}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  /* pills */
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:11.5px;font-weight:600}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .pill.ok{background:var(--ok-soft);color:#0e8c66} .pill.due{background:var(--warn-soft);color:#b9770a}
+  .pill.bad{background:var(--bad-soft);color:#c92f2f} .pill.info{background:var(--info-soft);color:#0883b8}
+  .pill.neutral{background:var(--brand-soft);color:var(--brand-d)} .pill.grey{background:#eef0f4;color:#6b7280}
+  /* messages */
+  .msg{padding:11px 13px;border-radius:var(--r-sm);font-size:13.5px;margin:12px 0}
+  .msg.err{background:var(--bad-soft);color:#b1241f} .msg.ok{background:var(--ok-soft);color:#0c7a59} .msg.info{background:var(--brand-soft);color:var(--brand-d)}
   .muted{color:var(--muted)} .small{font-size:12.5px}
   hr{border:0;border-top:1px solid var(--line);margin:16px 0}
-  .line{display:grid;grid-template-columns:1fr 84px 92px 38px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
-  .line:last-child{border-bottom:0}
-  .line .nm{font-weight:600}
-  .empty{color:var(--soft);text-align:center;padding:18px 0;font-size:13.5px}
-  .person{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
-  .person:last-child{border-bottom:0}
-  .person .who{font-weight:600}
+  .empty{color:var(--soft);text-align:center;padding:22px 0;font-size:13.5px}
+  /* lists / tables */
+  .line{display:grid;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .line:last-child{border-bottom:0}.line .nm{font-weight:600}
+  .person{padding:14px 0;border-bottom:1px solid var(--line)}.person:last-child{border-bottom:0}
+  .person.cx{opacity:.62}
+  .person .top{display:flex;justify-content:space-between;gap:10px}
+  .person .who{font-weight:600}.person .amt{font-weight:700;white-space:nowrap}
   .person .items{color:var(--muted);font-size:13px;margin-top:2px}
-  .person .amt{font-weight:700;white-space:nowrap}
-  .person .acts{display:flex;gap:7px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .person .acts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;align-items:center}
   .totbar{display:flex;justify-content:space-between;align-items:center;font-weight:700;margin-top:12px;padding-top:12px;border-top:2px solid var(--line)}
-  .keybox{display:flex;gap:8px;align-items:center}
-  .keybox input{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
-  .login{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
-  .login .card{width:100%;max-width:420px;margin:0}
-  .login .logo-lg{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--brand),#7c6cff);display:grid;place-items:center;color:#fff;font-size:26px;margin:0 auto 14px;box-shadow:var(--shadow)}
+  .task{border:1px solid var(--line);border-radius:var(--r-sm);padding:14px;margin-bottom:10px;animation:fadeUp .25s ease both}
+  .task .th{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .task .tt{font-weight:650}.task .meta2{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .keybox{display:flex;gap:8px;align-items:center}.keybox input{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;background:#f1f3f9;border-radius:8px;padding:5px 9px;cursor:pointer;font-weight:500}
+  .chk input{width:auto}
+  /* login */
+  .login{min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(1200px 500px at 50% -10%,#eef0ff,transparent),var(--bg)}
+  .login .card{width:100%;max-width:410px;margin:0;animation:pop .3s ease both}
+  .login .mark{width:54px;height:54px;border-radius:15px;background:linear-gradient(135deg,var(--brand),#7c6cff);display:grid;place-items:center;color:#fff;font-size:27px;margin:0 auto 14px;box-shadow:var(--shadow)}
   .login h1{font-size:20px;text-align:center;margin:0 0 4px;letter-spacing:-.02em}
   .login .sub{text-align:center;margin:0 0 18px}
-  .otp{letter-spacing:.4em;text-align:center;font-size:20px;font-weight:700}
-  .footer{text-align:center;color:var(--soft);font-size:12px;padding:24px 0}
-  @media(max-width:560px){
-    .grid2{grid-template-columns:1fr}
-    .line{grid-template-columns:1fr 64px 70px 34px;gap:7px}
-    .userchip .meta{display:none}
+  .otp{letter-spacing:.4em;text-align:center;font-size:22px;font-weight:700}
+  @media(max-width:900px){
+    .sidebar{transform:translateX(-100%)}
+    .sidebar.open{transform:none}
+    .main{margin-left:0}
+    .hb{display:block}
+    .scrim.show{display:block}
   }
+  @media(max-width:560px){ .grid2{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
 <div id="root"></div>
-
 <script>
-const $ = (s,r=document)=>r.querySelector(s);
-const ICON = { cart:'🍱', check:'✓', x:'✕', plus:'+', copy:'⧉', refresh:'↻' };
-const api = async (url,opts={})=>{
-  const r = await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts});
-  const data = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(data.error || ('HTTP '+r.status));
-  return data;
-};
-let ME=null, STATE=null, TAB='order';
-const money = n => (STATE?.currency||'') + ' ' + Number(n||0).toFixed(2);
-const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const msg = (t,k='info')=>`<div class="msg ${k}">${t}</div>`;
-const initials = s => (s||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const ICON={order:'🍱',tasks:'🗂️',collect:'💰',admin:'⚙️',check:'✓',x:'✕',plus:'+',copy:'⧉',refresh:'↻'};
+const api=async(url,opts={})=>{const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;};
+let ME=null,STATE=null,TAB='order';
+const money=n=>(STATE?.currency||'')+' '+Number(n||0).toFixed(2);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const msg=(t,k='info')=>`<div class="msg ${k}">${t}</div>`;
+const initials=s=>(s||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+const STATUS_PILL={pending:'grey',in_progress:'info',completed:'ok',cancelled:'bad'};
+const STATUS_LBL={pending:'Pending',in_progress:'In progress',completed:'Completed',cancelled:'Cancelled'};
 
-/* ---------------- Login ---------------- */
+/* ---------- Login ---------- */
 function renderLogin(step='email',email='',note=''){
-  $('#root').innerHTML = `
-    <div class="login">
-      <div class="card">
-        <div class="logo-lg">${ICON.cart}</div>
-        <h1>Office Lunch Orders</h1>
-        <p class="sub muted">Sign in with your work email — we'll send a one-time code.</p>
-        <div id="lmsg">${note}</div>
-        ${step==='email' ? `
-          <label>Work email</label>
-          <input id="email" type="email" value="${esc(email)}" placeholder="you@company.com" autocomplete="email">
-          <div style="margin-top:16px"><button class="btn block" id="send">Send code</button></div>
-        ` : `
-          <label>Email</label>
-          <input id="email" type="email" value="${esc(email)}" disabled>
-          <label>Enter the 6-digit code</label>
-          <input id="code" class="otp" inputmode="numeric" maxlength="6" placeholder="······">
-          <div style="margin-top:16px;display:flex;gap:10px">
-            <button class="btn ghost" id="back">Back</button>
-            <button class="btn block" id="verify">Verify & continue</button>
-          </div>`}
-      </div>
-    </div>`;
+  $('#root').innerHTML=`
+   <div class="login"><div class="card">
+     <div class="mark">${ICON.order}</div>
+     <h1>Office Lunch Orders</h1>
+     <p class="sub muted">Sign in with your work email — we'll send a one-time code.</p>
+     <div id="lmsg">${note}</div>
+     ${step==='email'?`
+       <label>Work email</label>
+       <input id="email" type="email" value="${esc(email)}" placeholder="you@company.com" autocomplete="email">
+       <div style="margin-top:16px"><button class="btn block" id="send">Send code</button></div>`:`
+       <label>Email</label><input type="email" value="${esc(email)}" disabled>
+       <label>Enter the 6-digit code</label>
+       <input id="code" class="otp" inputmode="numeric" maxlength="6" placeholder="······">
+       <div style="margin-top:16px;display:flex;gap:10px">
+         <button class="btn ghost" id="back">Back</button>
+         <button class="btn block" id="verify">Verify & continue</button></div>`}
+   </div></div>`;
   if(step==='email'){
-    $('#send').onclick = async ()=>{
-      const em=$('#email').value.trim();
-      try{
-        const r = await api('/api/auth/request-otp',{method:'POST',body:JSON.stringify({email:em})});
-        let n = msg('If your email is eligible, a code is on its way. It expires in 5 minutes.','ok');
-        if(r.newUser) n += msg('Looks like your first time — your account is created automatically once you verify. 👋','info');
-        if(r.devCode) n += msg('Dev code: <b>'+r.devCode+'</b>','info');
-        renderLogin('code',em,n);
-      }catch(e){ $('#lmsg').innerHTML = msg(e.message,'err'); }
-    };
+    $('#send').onclick=async()=>{const em=$('#email').value.trim();try{
+      const r=await api('/api/auth/request-otp',{method:'POST',body:JSON.stringify({email:em})});
+      let n=msg('If your email is eligible, a code is on its way. It expires in 5 minutes.','ok');
+      if(r.newUser)n+=msg("First time here? Your account is created automatically once you verify. 👋",'info');
+      if(r.devCode)n+=msg('Dev code: <b>'+r.devCode+'</b>','info');
+      renderLogin('code',em,n);
+    }catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
     $('#email').addEventListener('keydown',e=>{if(e.key==='Enter')$('#send').click();});
-  } else {
-    $('#verify').onclick = async ()=>{
-      try{ await api('/api/auth/verify-otp',{method:'POST',body:JSON.stringify({email,code:$('#code').value.trim()})}); await boot(); }
-      catch(e){ $('#lmsg').innerHTML = msg(e.message,'err'); }
-    };
-    $('#back').onclick = ()=>renderLogin('email',email);
+  }else{
+    $('#verify').onclick=async()=>{try{await api('/api/auth/verify-otp',{method:'POST',body:JSON.stringify({email,code:$('#code').value.trim()})});await boot();}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
+    $('#back').onclick=()=>renderLogin('email',email);
     $('#code').addEventListener('keydown',e=>{if(e.key==='Enter')$('#verify').click();});
     setTimeout(()=>$('#code')?.focus(),50);
   }
 }
 
-/* ---------------- Shell ---------------- */
+/* ---------- Shell ---------- */
+const NAV=[['order','My Order','order'],['tasks','My Tasks','tasks'],['agg','Collection','collect'],['admin','Admin','admin']];
+function visibleNav(){return NAV.filter(([k])=>{if(k==='agg')return ME.role==='office_boy'||ME.role==='admin';if(k==='admin')return ME.role==='admin';return true;});}
 function renderShell(){
-  const tabs=[['order','My Order']];
-  if(ME.role==='office_boy'||ME.role==='admin') tabs.push(['agg','Collection']);
-  if(ME.role==='admin') tabs.push(['admin','Admin']);
-  $('#root').innerHTML = `
-    <div class="topbar"><div class="wrap">
-      <div class="brand"><span class="logo">${ICON.cart}</span> Lunch Orders</div>
-      <div class="userchip">
-        <div class="avatar">${initials(ME.name||ME.email)}</div>
-        <div class="meta"><b>${esc(ME.name||ME.email)}</b><span>${esc(ME.role)}</span></div>
-        <button class="btn ghost sm" id="logout">Logout</button>
-      </div>
-    </div></div>
-    <div class="wrap">
-      <div class="tabs">${tabs.map(([k,l])=>`<button data-tab="${k}" class="${TAB===k?'active':''}">${l}</button>`).join('')}</div>
-      <div id="view"></div>
-      <div class="footer">Internal use • Orders close at ${STATE?.cutoffTime||'—'} ${STATE?.timezone||''}</div>
-    </div>`;
-  $('#logout').onclick = async ()=>{ await api('/api/auth/logout',{method:'POST'}); ME=null; renderLogin(); };
-  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;route();});
+  $('#root').innerHTML=`
+   <div class="app">
+     <aside class="sidebar" id="sb">
+       <div class="logo"><span class="mark">${ICON.order}</span> Lunch Orders</div>
+       <nav class="nav" id="nav">${visibleNav().map(([k,l,i])=>`<button data-tab="${k}" class="${TAB===k?'active':''}"><span class="i">${ICON[i]}</span>${l}</button>`).join('')}</nav>
+       <div class="foot">Orders close ${STATE?.cutoffTime||'—'}<br>${STATE?.timezone||''}</div>
+     </aside>
+     <div class="scrim" id="scrim"></div>
+     <div class="main">
+       <header class="appbar">
+         <div class="row"><button class="hb" id="hb">☰</button><h1 id="ttl"></h1></div>
+         <div class="userchip">
+           <div class="meta"><b>${esc(ME.name||ME.email)}</b><span>${esc(ME.role)}</span></div>
+           <div class="avatar">${initials(ME.name||ME.email)}</div>
+           <button class="btn ghost sm" id="logout">Logout</button>
+         </div>
+       </header>
+       <div class="content" id="view"></div>
+     </div>
+   </div>`;
+  $('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});ME=null;renderLogin();};
+  $('#hb').onclick=()=>{$('#sb').classList.toggle('open');$('#scrim').classList.toggle('show');};
+  $('#scrim').onclick=()=>{$('#sb').classList.remove('open');$('#scrim').classList.remove('show');};
+  $$('#nav button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;$('#sb').classList.remove('open');$('#scrim').classList.remove('show');route();});
   route();
 }
 function route(){
-  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TAB));
-  if(TAB==='order') return viewOrder();
-  if(TAB==='agg') return viewAggregate();
-  if(TAB==='admin') return viewAdmin();
+  $$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TAB));
+  const lbl=(visibleNav().find(([k])=>k===TAB)||[])[1]||'';
+  $('#ttl').textContent=lbl;
+  if(TAB==='order')return viewOrder();
+  if(TAB==='tasks')return viewTasks();
+  if(TAB==='agg')return viewAggregate();
+  if(TAB==='admin')return viewAdmin();
 }
+const tile=(label,val,icon,sub)=>`<div class="stat"><div class="l">${icon||''} ${label}</div><div class="v">${val}${sub?` <small>${sub}</small>`:''}</div></div>`;
 
-/* ---------------- My order ---------------- */
-let MENU=[], DRAFT=[];
+/* ---------- My order ---------- */
+let MENU=[],DRAFT=[];
 async function viewOrder(){
-  const v=$('#view'); v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  MENU = await api('/api/menu');
-  const {order,state} = await api('/api/orders/mine'); STATE=state;
-  DRAFT = order ? order.items.map(i=>({name:i.name,qty:i.qty,unit_price:i.unit_price})) : [];
-  const open = state.isOpen;
-  const status = open
-    ? `<span class="pill open"><span class="dot"></span>Open · closes ${state.cutoffTime}</span>`
-    : `<span class="pill closed"><span class="dot"></span>Closed · cutoff ${state.cutoffTime} ${state.timezone}</span>`;
-  v.innerHTML = `
+  const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
+  MENU=await api('/api/menu');
+  const {order,state}=await api('/api/orders/mine');STATE=state;
+  DRAFT=order?order.items.map(i=>({name:i.name,qty:i.qty,unit_price:i.unit_price})):[];
+  const open=state.isOpen;
+  const status=open?`<span class="pill ok"><span class="dot"></span>Open · closes ${state.cutoffTime}</span>`:`<span class="pill bad"><span class="dot"></span>Closed · cutoff ${state.cutoffTime} ${state.timezone}</span>`;
+  v.innerHTML=`
     <div class="card">
-      <div class="card-head"><h2>My lunch order</h2>${status}</div>
-      ${order ? msg(`Order placed for today — <b>${money(order.payment.amount)}</b>. ${order.payment.paid?'Payment received ✓':'Payment pending.'}`, order.payment.paid?'ok':'info'):''}
-      ${!open ? msg(`Ordering is closed. Requests are only accepted before <b>${state.cutoffTime}</b>.`,'err'):''}
+      <div class="card-head"><div><h2>My lunch order</h2><p class="sub">${new Date().toDateString()}</p></div>${status}</div>
+      ${order?msg(`Order placed — <b>${money(order.payment.amount)}</b>. ${order.payment.paid?'Payment received ✓':'Payment pending.'}`,order.payment.paid?'ok':'info'):''}
+      ${!open?msg(`Ordering is closed. Requests are only accepted before <b>${state.cutoffTime}</b>.`,'err'):''}
       <div id="builder" style="${open?'':'display:none'}">
         <label>Add from menu</label>
-        <div class="row">
-          <select id="menuSel">${MENU.filter(m=>m.available).map(m=>`<option value="${m.id}">${esc(m.name)} — ${money(m.price)}</option>`).join('')||'<option disabled>No menu items</option>'}</select>
-          <button class="btn sm" id="addMenu">${ICON.plus} Add</button>
-        </div>
-        ${state.allowCustomItems?`
-        <label>Or add a custom item</label>
-        <div class="row">
-          <input id="cName" placeholder="Item name">
-          <input id="cPrice" type="number" min="0" step="0.5" placeholder="Price" style="max-width:120px">
-          <button class="btn ghost sm" id="addCustom">${ICON.plus} Add</button>
-        </div>`:''}
-        <hr>
-        <div id="lines"></div>
+        <div class="row"><select id="menuSel">${MENU.filter(m=>m.available).map(m=>`<option value="${m.id}">${esc(m.name)} — ${money(m.price)}</option>`).join('')||'<option disabled>No items</option>'}</select><button class="btn sm" id="addMenu">${ICON.plus} Add</button></div>
+        ${state.allowCustomItems?`<label>Or add a custom item</label><div class="row"><input id="cName" placeholder="Item name"><input id="cPrice" type="number" min="0" step="0.5" placeholder="Price" style="max-width:120px"><button class="btn ghost sm" id="addCustom">${ICON.plus} Add</button></div>`:''}
+        <hr><div id="lines"></div>
         <label>Note for office boy (optional)</label>
         <input id="note" maxlength="300" value="${esc(order?order.note:'')}" placeholder="e.g. less spicy, no onion">
-        <div class="totbar"><span id="tot">Total: ${money(0)}</span>
-          <span class="row">
-            ${order?`<button class="btn danger sm" id="cancel">Cancel order</button>`:''}
-            <button class="btn" id="save">${order?'Update order':'Place order'}</button>
-          </span>
-        </div>
+        <div class="totbar"><span id="tot">Total: ${money(0)}</span><span class="row">${order?`<button class="btn danger sm" id="cancel">Cancel order</button>`:''}<button class="btn" id="save">${order?'Update order':'Place order'}</button></span></div>
         <div id="omsg"></div>
       </div>
     </div>`;
   if(open){
     $('#addMenu').onclick=()=>{const m=MENU.find(x=>x.id==$('#menuSel').value);if(m){DRAFT.push({name:m.name,qty:1,unit_price:m.price});lines();}};
-    if($('#addCustom'))$('#addCustom').onclick=()=>{const n=$('#cName').value.trim();const p=Number($('#cPrice').value)||0;if(n){DRAFT.push({name:n,qty:1,unit_price:p});$('#cName').value='';$('#cPrice').value='';lines();}};
+    if($('#addCustom'))$('#addCustom').onclick=()=>{const n=$('#cName').value.trim(),p=Number($('#cPrice').value)||0;if(n){DRAFT.push({name:n,qty:1,unit_price:p});$('#cName').value='';$('#cPrice').value='';lines();}};
     $('#save').onclick=save;
-    if($('#cancel'))$('#cancel').onclick=async()=>{try{await api('/api/orders/mine',{method:'DELETE'});viewOrder();}catch(e){$('#omsg').innerHTML=msg(e.message,'err');}};
+    if($('#cancel'))$('#cancel').onclick=async()=>{if(!confirm('Cancel your order?'))return;try{await api('/api/orders/mine',{method:'DELETE'});viewOrder();}catch(e){$('#omsg').innerHTML=msg(e.message,'err');}};
     lines();
   }
 }
-function lines(){
-  const el=$('#lines');
-  if(!DRAFT.length){el.innerHTML='<p class="empty">No items yet — add from the menu above.</p>';tot();return;}
-  el.innerHTML=DRAFT.map((it,i)=>`
-    <div class="line">
-      <span class="nm">${esc(it.name)}</span>
-      <input type="number" min="1" max="50" value="${it.qty}" data-i="${i}" class="qty">
-      <span class="muted">${money(it.unit_price)}</span>
-      <button class="btn ghost sm" data-del="${i}">${ICON.x}</button>
-    </div>`).join('');
-  el.querySelectorAll('.qty').forEach(q=>q.oninput=e=>{DRAFT[e.target.dataset.i].qty=Math.max(1,parseInt(e.target.value)||1);tot();});
-  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{DRAFT.splice(b.dataset.del,1);lines();});
-  tot();
-}
+function lines(){const el=$('#lines');if(!DRAFT.length){el.innerHTML='<p class="empty">No items yet — add from the menu above.</p>';tot();return;}
+  el.innerHTML=DRAFT.map((it,i)=>`<div class="line" style="grid-template-columns:1fr 84px 92px 38px"><span class="nm">${esc(it.name)}</span><input type="number" min="1" max="50" value="${it.qty}" data-i="${i}" class="qty"><span class="muted">${money(it.unit_price)}</span><button class="btn ghost sm" data-del="${i}">${ICON.x}</button></div>`).join('');
+  $$('.qty',el).forEach(q=>q.oninput=e=>{DRAFT[e.target.dataset.i].qty=Math.max(1,parseInt(e.target.value)||1);tot();});
+  $$('[data-del]',el).forEach(b=>b.onclick=()=>{DRAFT.splice(b.dataset.del,1);lines();});tot();}
 const tot=()=>{const t=DRAFT.reduce((s,i)=>s+i.qty*i.unit_price,0);if($('#tot'))$('#tot').textContent='Total: '+money(t);};
-async function save(){
-  try{
-    const items=DRAFT.map(i=>({name:i.name,qty:i.qty,price:i.unit_price}));
-    await api('/api/orders',{method:'POST',body:JSON.stringify({items,note:$('#note').value})});
-    viewOrder();
-  }catch(e){$('#omsg').innerHTML=msg(e.message,'err');}
-}
+async function save(){try{await api('/api/orders',{method:'POST',body:JSON.stringify({items:DRAFT.map(i=>({name:i.name,qty:i.qty,price:i.unit_price})),note:$('#note').value})});viewOrder();}catch(e){$('#omsg').innerHTML=msg(e.message,'err');}}
 
-/* ---------------- Collection ---------------- */
-async function viewAggregate(){
-  const v=$('#view'); v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  const d=await api('/api/aggregate'); STATE=d.state;
-  renderCollection(v,d,viewAggregate,'/api');
-}
-function renderCollection(v,d,refresh,prefix){
-  const shop=d.shoppingList.map(r=>`<div class="line" style="grid-template-columns:1fr 60px 90px 90px"><span class="nm">${esc(r.name)}</span><span class="muted">×${r.qty}</span><span class="muted">${money(r.unit_price)}</span><span style="text-align:right;font-weight:600">${money(r.qty*r.unit_price)}</span></div>`).join('');
-  const people=d.perPerson.map(p=>`
-    <div class="person">
-      <div style="min-width:0">
-        <div class="who">${esc(p.name||p.email)}</div>
-        <div class="items">${p.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}${p.note?' · <i>'+esc(p.note)+'</i>':''}</div>
-        <div class="acts">
-          ${p.paid?'<span class="pill paid">'+ICON.check+' Paid</span>':'<span class="pill due">Payment due</span>'}
-          <button class="btn ${p.paid?'ghost':'ok'} sm" data-pay="${p.id}" data-paid="${p.paid?0:1}">${p.paid?'Undo':ICON.check+' Mark paid'}</button>
-          <button class="btn ghost sm" data-cancel="${p.id}">Cancel</button>
-        </div>
-      </div>
-      <div class="amt">${money(p.amount)}</div>
-    </div>`).join('');
+/* ---------- My tasks ---------- */
+async function viewTasks(){
+  const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
+  const tasks=await api('/api/tasks/mine');
+  const by=s=>tasks.filter(t=>t.status===s).length;
   v.innerHTML=`
-    <div class="card">
-      <div class="card-head"><h2>Shopping list</h2>${d.frozen?'<span class="pill paid">Final</span>':'<span class="pill due">Not final until '+d.state.aggregateTime+'</span>'}</div>
-      ${shop||'<p class="empty">No orders yet today.</p>'}
-      ${d.perPerson.length?`<div class="totbar"><span>Grand total</span><span>${money(d.grandTotal)}</span></div>`:''}
+    <div class="stats">
+      ${tile('Pending',by('pending'),'🕒')}
+      ${tile('In progress',by('in_progress'),'🔄')}
+      ${tile('Completed',by('completed'),'✅')}
+      ${tile('Total',tasks.length,'🗂️')}
     </div>
-    <div class="card">
-      <div class="card-head"><h2>Collect payment</h2><span class="pill neutral">${d.perPerson.length} ${d.perPerson.length===1?'person':'people'}</span></div>
-      ${people||'<p class="empty">No orders to collect.</p>'}
-      <div id="cmsg"></div>
+    <div class="card"><div class="card-head"><h2>Tasks assigned to me</h2></div>
+      <div id="tlist">${tasks.length?tasks.map(taskRow).join(''):'<p class="empty">No tasks assigned to you.</p>'}</div>
+      <div id="tmsg"></div>
     </div>`;
-  v.querySelectorAll('[data-pay]').forEach(b=>b.onclick=async()=>{
-    try{ await window.collectApi('POST',prefix+'/payments/'+b.dataset.pay+'/paid',{paid:Number(b.dataset.paid)}); refresh(); }
-    catch(e){ $('#cmsg').innerHTML=msg(e.message,'err'); }
-  });
-  v.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('Cancel this order?'))return;
-    try{ await window.collectApi('POST',prefix+'/orders/'+b.dataset.cancel+'/cancel',{}); refresh(); }
-    catch(e){ $('#cmsg').innerHTML=msg(e.message,'err'); }
+  bindTaskRows(false);
+}
+function taskRow(t){
+  const final=t.status==='completed'||t.status==='cancelled';
+  return `<div class="task" data-tid="${t.id}">
+    <div class="th"><div><div class="tt">${esc(t.title)}</div><div class="meta2">${t.category_name?esc(t.category_name)+' · ':''}updated ${new Date(t.updated_at).toLocaleString()}</div></div>
+      <span class="pill ${STATUS_PILL[t.status]}">${STATUS_LBL[t.status]}</span></div>
+    ${t.details?`<div class="meta2" style="margin-top:8px">${esc(t.details)}</div>`:''}
+    <div class="row wrap-row" style="margin-top:10px">
+      <select class="tstatus" style="max-width:170px">${Object.keys(STATUS_LBL).map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${STATUS_LBL[s]}</option>`).join('')}</select>
+      <input class="tremarks" placeholder="Remarks (optional)" value="${esc(t.remarks||'')}" style="min-width:160px;flex:1">
+      <button class="btn sm tsave">Save</button>
+    </div></div>`;
+}
+function bindTaskRows(boy){
+  $$('.task').forEach(card=>{
+    card.querySelector('.tsave').onclick=async()=>{
+      const id=card.dataset.tid,status=card.querySelector('.tstatus').value,remarks=card.querySelector('.tremarks').value;
+      try{await api((boy?'/api/boy':'/api')+'/tasks/'+id+'/status'+(boy?('?key='+encodeURIComponent(BOYKEY)):''),{method:'POST',body:JSON.stringify({status,remarks})});boy?viewBoyTasks():viewTasks();}
+      catch(e){const m=$('#tmsg');if(m)m.innerHTML=msg(e.message,'err');}
+    };
   });
 }
-// Default collect transport = session cookie. boy.html overrides window.collectApi.
-window.collectApi = (method,url,body)=>api(url,{method,body:JSON.stringify(body)});
 
-/* ---------------- Admin ---------------- */
-async function viewAdmin(){
-  const v=$('#view'); v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  const [s,menu,users]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users')]);
-  const link = location.origin+'/boy.html?key='+s.boy_access_key;
+/* ---------- Collection ---------- */
+async function viewAggregate(){
+  const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
+  const d=await api('/api/aggregate');STATE=d.state;renderCollection(v,d,viewAggregate,'/api',ME.role);
+}
+function personRow(p,prefix,role){
+  const canCancel=!p.cancelled && (!p.paid || role==='admin');
+  const canUndo=p.paid && !p.cancelled && role==='admin';
+  let badge=p.cancelled?`<span class="pill bad">Cancelled</span>${p.paid?' <span class="pill ok">Paid</span>':''}`
+    :(p.paid?'<span class="pill ok">'+ICON.check+' Paid</span>':'<span class="pill due">Payment due</span>');
+  let acts='';
+  if(!p.cancelled && !p.paid)acts+=`<button class="btn ok sm" data-pay="${p.id}">${ICON.check} Mark paid</button>`;
+  if(canUndo)acts+=`<button class="btn ghost sm" data-undo="${p.id}">Reset payment</button>`;
+  if(canCancel)acts+=`<button class="btn ghost sm" data-cancel="${p.id}">Cancel</button>`;
+  return `<div class="person ${p.cancelled?'cx':''}">
+    <div class="top"><span class="who">${esc(p.name||p.email)}</span><span class="amt">${money(p.amount)}</span></div>
+    <div class="items">${p.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}${p.note?' · <i>'+esc(p.note)+'</i>':''}</div>
+    <div class="acts">${badge}${acts}</div></div>`;
+}
+function renderCollection(v,d,refresh,prefix,role){
+  const shop=d.shoppingList.map(r=>`<div class="line" style="grid-template-columns:1fr 56px 86px 90px"><span class="nm">${esc(r.name)}</span><span class="muted">×${r.qty}</span><span class="muted">${money(r.unit_price)}</span><span style="text-align:right;font-weight:600">${money(r.qty*r.unit_price)}</span></div>`).join('');
   v.innerHTML=`
-    <div class="card">
-      <div class="card-head"><h2>Daily rules</h2></div>
-      <div id="setMsg"></div>
+    <div class="stats">
+      ${tile('Orders',d.activeCount,'🍱')}
+      ${tile('To collect',money(d.grandTotal),'💰')}
+      ${tile('Collected',money(d.collected),'✅',d.paidCount+' paid')}
+      ${tile('Status',d.frozen?'Final':'Open','📋')}
+    </div>
+    <div class="card"><div class="card-head"><h2>Shopping list</h2>${d.frozen?'<span class="pill ok">Final</span>':'<span class="pill due">Updates until '+d.state.aggregateTime+'</span>'}</div>
+      ${shop||'<p class="empty">No orders yet today.</p>'}
+      ${d.activeCount?`<div class="totbar"><span>Grand total</span><span>${money(d.grandTotal)}</span></div>`:''}</div>
+    <div class="card"><div class="card-head"><h2>Collect payment</h2><span class="pill neutral">${d.perPerson.length} ${d.perPerson.length===1?'order':'orders'}</span></div>
+      ${d.perPerson.length?d.perPerson.map(p=>personRow(p,prefix,role)).join(''):'<p class="empty">No orders to collect.</p>'}
+      <div id="cmsg"></div></div>`;
+  const post=(url,body)=>window.collectApi('POST',url,body);
+  $$('[data-pay]',v).forEach(b=>b.onclick=async()=>{try{await post(prefix+'/payments/'+b.dataset.pay+'/paid',{paid:true});refresh();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+  $$('[data-undo]',v).forEach(b=>b.onclick=async()=>{try{await post(prefix+'/payments/'+b.dataset.undo+'/paid',{paid:false});refresh();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+  $$('[data-cancel]',v).forEach(b=>b.onclick=async()=>{if(!confirm('Cancel this order? The employee will be emailed.'))return;try{await post(prefix+'/orders/'+b.dataset.cancel+'/cancel',{});refresh();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+}
+window.collectApi=(method,url,body)=>api(url,{method,body:JSON.stringify(body)});
+
+/* ---------- Admin ---------- */
+async function viewAdmin(){
+  const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
+  const [s,menu,users,cats,tasks]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users'),api('/api/admin/task-categories'),api('/api/admin/tasks')]);
+  const link=location.origin+'/boy.html?key='+s.boy_access_key;
+  const employees=users.filter(u=>u.active);
+  v.innerHTML=`
+    <div class="card"><div class="card-head"><h2>Daily rules</h2></div><div id="setMsg"></div>
       <div class="grid2">
         <div><label>Cutoff time (HH:MM)</label><input id="cutoff" value="${s.cutoff_time}"></div>
         <div><label>Aggregate time (HH:MM)</label><input id="aggt" value="${s.aggregate_time}"></div>
@@ -323,88 +346,93 @@ async function viewAdmin(){
       <input id="domains" value="${esc(s.allowed_domains)}" placeholder="ayasya.com, company.com">
       <label class="row" style="gap:8px;margin-top:14px"><input type="checkbox" id="custom" ${s.allow_custom_items?'checked':''} style="width:auto"> <span>Allow custom (off-menu) items</span></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="openchk" ${s.ordering_open?'checked':''} style="width:auto"> <span>Ordering enabled (master switch)</span></label>
-      <div style="margin-top:16px"><button class="btn" id="saveSet">Save rules</button></div>
-    </div>
+      <div style="margin-top:16px"><button class="btn" id="saveSet">Save rules</button></div></div>
 
-    <div class="card">
-      <div class="card-head"><h2>Office boy access</h2><span class="pill ${s.boy_pin_set?'paid':'neutral'}">${s.boy_pin_set?'PIN set':'No PIN'}</span></div>
-      <p class="sub">Share this private link with the office boy. It opens a no-login screen to collect payments and cancel orders. Anyone with the link has access — rotate it if it leaks.</p>
+    <div class="card"><div class="card-head"><h2>Office boy access</h2><span class="pill ${s.boy_pin_set?'ok':'neutral'}">${s.boy_pin_set?'PIN set':'No PIN'}</span></div>
+      <p class="sub" style="margin-bottom:12px">Private no-login link for the office boy (collection + tasks). Anyone with it has access — rotate if leaked.</p>
       <label>Access link</label>
       <div class="keybox"><input id="boylink" value="${esc(link)}" readonly><button class="btn ghost sm" id="copyLink">${ICON.copy} Copy</button></div>
-      <div class="row wrap-row" style="margin-top:14px">
-        <button class="btn ghost sm" id="rotate">${ICON.refresh} Rotate link</button>
-        <input id="pin" inputmode="numeric" maxlength="8" placeholder="Optional PIN (4-8 digits)" style="max-width:220px">
-        <button class="btn ghost sm" id="setPin">Set PIN</button>
-        <button class="btn ghost sm" id="clearPin">Clear PIN</button>
+      <div class="row wrap-row" style="margin-top:14px"><button class="btn ghost sm" id="rotate">${ICON.refresh} Rotate link</button>
+        <input id="pin" inputmode="numeric" maxlength="8" placeholder="PIN (4-8 digits)" style="max-width:200px">
+        <button class="btn ghost sm" id="setPin">Set PIN</button><button class="btn ghost sm" id="clearPin">Clear PIN</button></div>
+      <div id="boyMsg"></div></div>
+
+    <div class="card"><div class="card-head"><h2>Tasks — assign</h2></div><div id="taskMsg"></div>
+      <div class="grid2">
+        <div><label>Title</label><input id="ttitle" placeholder="e.g. Deposit cheque at bank"></div>
+        <div><label>Category</label><select id="tcat"><option value="">—</option>${cats.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
       </div>
-      <div id="boyMsg"></div>
-    </div>
+      <label>Assign to</label><select id="tassignee"><option value="">— select employee —</option>${employees.map(u=>`<option value="${u.id}">${esc(u.name||u.email)} (${u.role})</option>`).join('')}</select>
+      <label>Details (optional)</label><textarea id="tdetails" placeholder="Any instructions…"></textarea>
+      <div style="margin-top:12px"><button class="btn" id="addTask">${ICON.plus} Create task</button></div>
+      <hr><div id="adminTasks">${tasks.length?tasks.map(t=>adminTaskRow(t,employees,cats)).join(''):'<p class="empty">No tasks yet.</p>'}</div></div>
 
-    <div class="card">
-      <div class="card-head"><h2>Menu</h2></div>
-      <div id="menuList"></div>
-      <hr>
-      <div class="row wrap-row"><input id="mName" placeholder="New item name"><input id="mPrice" type="number" min="0" step="0.5" placeholder="Price" style="max-width:120px"><button class="btn sm" id="addM">${ICON.plus} Add</button></div>
-    </div>
+    <div class="card"><div class="card-head"><h2>Task categories</h2></div>
+      <div id="catList"></div>
+      <hr><div class="row"><input id="catName" placeholder="New category name"><button class="btn sm" id="addCat">${ICON.plus} Add</button></div>
+      <div id="catMsg"></div></div>
 
-    <div class="card">
-      <div class="card-head"><h2>People</h2></div>
-      <div id="userList"></div>
-      <hr>
-      <p class="sub" style="margin:0 0 10px">Add the office boy here with a dummy email (e.g. rahul@ayasya.com) and role <b>office_boy</b>. Staff from allowed domains are created automatically on first login.</p>
-      <div class="row wrap-row">
-        <input id="uName" placeholder="Name" style="min-width:120px">
-        <input id="uEmail" placeholder="email@company.com" style="min-width:170px">
-        <select id="uRole" style="max-width:150px"><option value="staff">staff</option><option value="office_boy">office_boy</option><option value="admin">admin</option></select>
-        <button class="btn sm" id="addU">${ICON.plus} Add</button>
-      </div>
-      <div id="uMsg"></div>
-    </div>`;
+    <div class="card"><div class="card-head"><h2>Menu</h2></div><div id="menuList"></div>
+      <hr><div class="row wrap-row"><input id="mName" placeholder="New item name"><input id="mPrice" type="number" min="0" step="0.5" placeholder="Price" style="max-width:120px"><button class="btn sm" id="addM">${ICON.plus} Add</button></div></div>
 
-  $('#saveSet').onclick=async()=>{
-    try{
-      await api('/api/settings',{method:'PUT',body:JSON.stringify({
-        cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),
-        timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),
-        allowed_domains:$('#domains').value,
-        allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});
-      $('#setMsg').innerHTML=msg('Saved.','ok');
-    }catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}
-  };
+    <div class="card"><div class="card-head"><h2>People</h2></div><div id="userList"></div>
+      <hr><p class="sub" style="margin:0 0 10px">Add the office boy with a dummy email (e.g. rahul@ayasya.com) and role <b>office_boy</b>. Staff from allowed domains self-onboard on first login.</p>
+      <div class="row wrap-row"><input id="uName" placeholder="Name" style="min-width:120px"><input id="uEmail" placeholder="email@company.com" style="min-width:170px"><select id="uRole" style="max-width:150px"><option value="staff">staff</option><option value="office_boy">office_boy</option><option value="admin">admin</option></select><button class="btn sm" id="addU">${ICON.plus} Add</button></div><div id="uMsg"></div></div>`;
+
+  // rules
+  $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
+  // boy access
   $('#copyLink').onclick=()=>{navigator.clipboard?.writeText($('#boylink').value);$('#boyMsg').innerHTML=msg('Link copied.','ok');};
   $('#rotate').onclick=async()=>{if(!confirm('Rotate the link? The old link stops working.'))return;await api('/api/admin/boy-key',{method:'POST'});viewAdmin();};
   $('#setPin').onclick=async()=>{try{await api('/api/admin/boy-pin',{method:'PUT',body:JSON.stringify({pin:$('#pin').value.trim()})});viewAdmin();}catch(e){$('#boyMsg').innerHTML=msg(e.message,'err');}};
   $('#clearPin').onclick=async()=>{await api('/api/admin/boy-pin',{method:'PUT',body:JSON.stringify({pin:''})});viewAdmin();};
-
-  const renderMenu=(list)=>{ $('#menuList').innerHTML=list.map(m=>`
-    <div class="line" style="grid-template-columns:1fr 100px auto">
-      <span class="nm">${esc(m.name)}${m.available?'':' <span class="muted small">(hidden)</span>'}</span>
-      <span class="muted">${money(m.price)}</span>
-      <span class="row" style="justify-content:flex-end"><button class="btn ghost sm" data-tog="${m.id}" data-av="${m.available?0:1}">${m.available?'Hide':'Show'}</button><button class="btn danger sm" data-delm="${m.id}">${ICON.x}</button></span>
-    </div>`).join('')||'<p class="empty">No items.</p>';
-    $('#menuList').querySelectorAll('[data-delm]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.delm,{method:'DELETE'});viewAdmin();});
-    $('#menuList').querySelectorAll('[data-tog]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.tog,{method:'PUT',body:JSON.stringify({available:Number(b.dataset.av)})});viewAdmin();});
-  };
+  // tasks
+  $('#addTask').onclick=async()=>{const title=$('#ttitle').value.trim();if(!title){$('#taskMsg').innerHTML=msg('Title required','err');return;}
+    try{await api('/api/admin/tasks',{method:'POST',body:JSON.stringify({title,category_id:$('#tcat').value||null,assignee_id:$('#tassignee').value||null,details:$('#tdetails').value})});viewAdmin();}catch(e){$('#taskMsg').innerHTML=msg(e.message,'err');}};
+  $$('#adminTasks [data-tdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this task?'))return;await api('/api/admin/tasks/'+b.dataset.tdel,{method:'DELETE'});viewAdmin();});
+  $$('#adminTasks [data-tup]').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-trow]');await api('/api/admin/tasks/'+b.dataset.tup,{method:'PUT',body:JSON.stringify({assignee_id:c.querySelector('.a-assignee').value||null,category_id:c.querySelector('.a-cat').value||null,status:c.querySelector('.a-status').value})});viewAdmin();});
+  // categories
+  renderCats(cats,employees);
+  $('#addCat').onclick=async()=>{const n=$('#catName').value.trim();if(!n)return;await api('/api/admin/task-categories',{method:'POST',body:JSON.stringify({name:n})});viewAdmin();};
+  // menu
   renderMenu(menu);
   $('#addM').onclick=async()=>{const n=$('#mName').value.trim();if(!n)return;await api('/api/menu',{method:'POST',body:JSON.stringify({name:n,price:Number($('#mPrice').value)||0})});viewAdmin();};
-
-  $('#userList').innerHTML=users.map(u=>`
-    <div class="line" style="grid-template-columns:1fr 1fr 120px 90px">
-      <span class="nm">${esc(u.name||'—')}</span>
-      <span class="muted small">${esc(u.email)}</span>
-      <select data-role="${u.id}">${['staff','office_boy','admin'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>
-      <button class="btn ghost sm" data-act="${u.id}" data-a="${u.active?0:1}">${u.active?'Disable':'Enable'}</button>
-    </div>`).join('');
-  $('#userList').querySelectorAll('[data-role]').forEach(sel=>sel.onchange=async()=>{await api('/api/users/'+sel.dataset.role,{method:'PUT',body:JSON.stringify({role:sel.value})});});
-  $('#userList').querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{await api('/api/users/'+b.dataset.act,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.a)})});viewAdmin();});
+  // people
+  renderUsers(users);
   $('#addU').onclick=async()=>{try{await api('/api/users',{method:'POST',body:JSON.stringify({name:$('#uName').value.trim(),email:$('#uEmail').value.trim(),role:$('#uRole').value})});viewAdmin();}catch(e){$('#uMsg').innerHTML=msg(e.message,'err');}};
+
+  function renderMenu(list){$('#menuList').innerHTML=list.map(m=>`<div class="line" style="grid-template-columns:1fr 100px auto"><span class="nm">${esc(m.name)}${m.available?'':' <span class="muted small">(hidden)</span>'}</span><span class="muted">${money(m.price)}</span><span class="row" style="justify-content:flex-end"><button class="btn ghost sm" data-tog="${m.id}" data-av="${m.available?0:1}">${m.available?'Hide':'Show'}</button><button class="btn danger sm" data-delm="${m.id}">${ICON.x}</button></span></div>`).join('')||'<p class="empty">No items.</p>';
+    $$('#menuList [data-delm]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.delm,{method:'DELETE'});viewAdmin();});
+    $$('#menuList [data-tog]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.tog,{method:'PUT',body:JSON.stringify({available:Number(b.dataset.av)})});viewAdmin();});}
+  function renderUsers(list){$('#userList').innerHTML=list.map(u=>`<div class="line" style="grid-template-columns:1fr 1fr 120px 90px"><span class="nm">${esc(u.name||'—')}</span><span class="muted small">${esc(u.email)}</span><select data-role="${u.id}">${['staff','office_boy','admin'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select><button class="btn ghost sm" data-act="${u.id}" data-a="${u.active?0:1}">${u.active?'Disable':'Enable'}</button></div>`).join('');
+    $$('#userList [data-role]').forEach(sel=>sel.onchange=async()=>{await api('/api/users/'+sel.dataset.role,{method:'PUT',body:JSON.stringify({role:sel.value})});});
+    $$('#userList [data-act]').forEach(b=>b.onclick=async()=>{await api('/api/users/'+b.dataset.act,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.a)})});viewAdmin();});}
+  function renderCats(list,emps){$('#catList').innerHTML=list.map(c=>`<div class="task" data-crow="${c.id}">
+      <div class="th"><div class="tt">${esc(c.name)} ${c.active?'':'<span class="pill grey">inactive</span>'}</div>
+        <div class="row"><button class="btn ghost sm" data-ctog="${c.id}" data-av="${c.active?0:1}">${c.active?'Disable':'Enable'}</button><button class="btn danger sm" data-cdel="${c.id}">${ICON.x}</button></div></div>
+      <div class="meta2" style="margin:8px 0 6px">Visible to <span class="muted">(none ticked = everyone)</span>:</div>
+      <div class="chips">${emps.map(u=>`<label class="chk"><input type="checkbox" class="cvis" value="${u.id}" ${c.visible_to.includes(u.id)?'checked':''}> ${esc(u.name||u.email)}</label>`).join('')}</div>
+      <div style="margin-top:8px"><button class="btn ghost sm" data-cvsave="${c.id}">Save visibility</button></div></div>`).join('')||'<p class="empty">No categories.</p>';
+    $$('#catList [data-cdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete category?'))return;await api('/api/admin/task-categories/'+b.dataset.cdel,{method:'DELETE'});viewAdmin();});
+    $$('#catList [data-ctog]').forEach(b=>b.onclick=async()=>{await api('/api/admin/task-categories/'+b.dataset.ctog,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.av)})});viewAdmin();});
+    $$('#catList [data-cvsave]').forEach(b=>b.onclick=async()=>{const row=b.closest('[data-crow]');const ids=$$('.cvis',row).filter(x=>x.checked).map(x=>Number(x.value));await api('/api/admin/task-categories/'+b.dataset.cvsave+'/visibility',{method:'PUT',body:JSON.stringify({user_ids:ids})});$('#catMsg').innerHTML=msg('Visibility saved.','ok');});}
+}
+function adminTaskRow(t,emps,cats){
+  return `<div class="task" data-trow="${t.id}">
+    <div class="th"><div><div class="tt">${esc(t.title)}</div><div class="meta2">${t.assignee_name?'→ '+esc(t.assignee_name):'<i>unassigned</i>'} · updated ${new Date(t.updated_at).toLocaleDateString()}</div></div>
+      <span class="pill ${STATUS_PILL[t.status]}">${STATUS_LBL[t.status]}</span></div>
+    ${t.details?`<div class="meta2" style="margin-top:8px">${esc(t.details)}</div>`:''}
+    ${t.remarks?`<div class="meta2" style="margin-top:4px"><b>Remarks:</b> ${esc(t.remarks)}</div>`:''}
+    <div class="row wrap-row" style="margin-top:10px">
+      <select class="a-assignee" style="max-width:180px"><option value="">— unassigned —</option>${emps.map(u=>`<option value="${u.id}" ${t.assignee_id===u.id?'selected':''}>${esc(u.name||u.email)}</option>`).join('')}</select>
+      <select class="a-cat" style="max-width:150px"><option value="">— no category —</option>${cats.map(c=>`<option value="${c.id}" ${t.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+      <select class="a-status" style="max-width:150px">${Object.keys(STATUS_LBL).map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${STATUS_LBL[s]}</option>`).join('')}</select>
+      <button class="btn sm" data-tup="${t.id}">Update</button><button class="btn ghost sm" data-tdel="${t.id}">${ICON.x}</button>
+    </div></div>`;
 }
 
-/* ---------------- Boot ---------------- */
-async function boot(){
-  try{ const d=await api('/api/me'); ME=d.user; STATE=d.state; renderShell(); }
-  catch{ renderLogin(); }
-}
+/* ---------- Boot ---------- */
+async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();}catch{renderLogin();}}
 boot();
 </script>
 </body>

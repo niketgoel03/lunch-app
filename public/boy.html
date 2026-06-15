@@ -6,120 +6,124 @@
 <title>Lunch Collection — Office Boy</title>
 <style>
   :root{
-    --bg:#f4f6fb; --bg2:#eef1f8; --card:#fff; --line:#e6e9f0; --ink:#10131a; --muted:#697086; --soft:#9aa1b2;
-    --brand:#0f9d58; --brand-d:#0c8a4d; --brand-soft:#e7f6ee;
-    --ok:#0f9d58; --ok-soft:#e7f6ee; --warn:#c47d00; --warn-soft:#fdf3e2; --bad:#dc2626; --bad-soft:#fdecec;
-    --shadow:0 1px 2px rgba(16,19,26,.04),0 8px 24px rgba(16,19,26,.06); --radius:16px;
+    --bg:#f6f7fb; --card:#fff; --line:#e7e9f1; --ink:#0f1729; --muted:#6b7280; --soft:#9aa3b2;
+    --brand:#10b981; --brand-d:#0e9f74; --brand-soft:#e7f8f1;
+    --ok:#10b981; --ok-soft:#e7f8f1; --warn:#f59e0b; --warn-soft:#fef5e7; --bad:#ef4444; --bad-soft:#fdecec;
+    --info:#0ea5e9; --info-soft:#e6f6fe;
+    --shadow:0 1px 2px rgba(16,23,41,.05),0 10px 30px rgba(16,23,41,.07); --r:16px; --r-sm:11px;
   }
   *{box-sizing:border-box} html,body{margin:0}
-  body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:linear-gradient(180deg,var(--bg),var(--bg2));min-height:100vh;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:620px;margin:0 auto;padding:0 16px}
+  body{font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+  @keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  .wrap{max-width:640px;margin:0 auto;padding:0 16px 40px}
   .topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-  .topbar .wrap{display:flex;align-items:center;gap:10px;height:60px;font-weight:700}
-  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#34c77b);display:grid;place-items:center;color:#fff;font-size:18px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin:18px 0}
-  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .card-head h2{margin:0;font-size:16px}
-  h2{font-size:16px;margin:0 0 8px}
+  .topbar .in{max-width:640px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:10px;height:60px;font-weight:700}
+  .mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#34d399);display:grid;place-items:center;color:#fff;font-size:18px}
+  .tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);padding:6px;border-radius:13px;box-shadow:var(--shadow);margin:16px 0;width:fit-content}
+  .tabs button{border:0;background:transparent;color:var(--muted);font-weight:600;font-size:14px;padding:9px 16px;border-radius:9px;cursor:pointer}
+  .tabs button.active{background:var(--brand);color:#fff}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;animation:pop .25s ease both}
+  .stat .l{color:var(--muted);font-size:12px;font-weight:600}.stat .v{font-size:22px;font-weight:750;margin-top:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:20px;margin-bottom:16px;animation:pop .25s ease both}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .card-head h2{margin:0;font-size:15.5px}
   label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:10px 0 6px}
-  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px}
-  input:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
-  .btn{border:0;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center}
-  .btn:hover{background:var(--brand-d)} .btn.block{width:100%} .btn.ghost{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
-  .btn.sm{padding:8px 12px;font-size:13px} .btn.ok{background:var(--ok)} .btn:disabled{opacity:.5}
-  .pill{display:inline-flex;gap:6px;align-items:center;padding:4px 11px;border-radius:99px;font-size:12px;font-weight:600}
-  .pill.paid{background:var(--ok-soft);color:var(--ok)} .pill.due{background:var(--warn-soft);color:var(--warn)} .pill.neutral{background:#eef0ff;color:#4338ca}
-  .msg{padding:11px 13px;border-radius:11px;font-size:13.5px;margin:10px 0}
-  .msg.err{background:var(--bad-soft);color:#a31515} .msg.ok{background:var(--ok-soft);color:#0b7a43}
-  .line{display:grid;grid-template-columns:1fr 50px 80px 80px;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)} .line:last-child{border-bottom:0}
-  .nm{font-weight:600} .muted{color:var(--muted)} .empty{color:var(--soft);text-align:center;padding:18px 0}
-  .person{padding:14px 0;border-bottom:1px solid var(--line)} .person:last-child{border-bottom:0}
-  .person .top{display:flex;justify-content:space-between;gap:10px} .who{font-weight:600} .amt{font-weight:700;white-space:nowrap}
-  .items{color:var(--muted);font-size:13px;margin-top:2px} .acts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+  input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:16px}
+  input:focus,select:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .btn{border:0;border-radius:var(--r-sm);padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center;transition:.15s}
+  .btn:hover{background:var(--brand-d)} .btn.block{width:100%} .btn.ghost{background:#f1f3f9;color:var(--ink)} .btn.sm{padding:8px 12px;font-size:13px}
+  .pill{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:99px;font-size:11.5px;font-weight:600}
+  .pill.ok{background:var(--ok-soft);color:#0e8c66} .pill.due{background:var(--warn-soft);color:#b9770a} .pill.bad{background:var(--bad-soft);color:#c92f2f} .pill.info{background:var(--info-soft);color:#0883b8} .pill.neutral{background:#eef0ff;color:#4338ca} .pill.grey{background:#eef0f4;color:#6b7280}
+  .msg{padding:11px 13px;border-radius:var(--r-sm);font-size:13.5px;margin:10px 0}
+  .msg.err{background:var(--bad-soft);color:#b1241f} .msg.ok{background:var(--ok-soft);color:#0c7a59}
+  .line{display:grid;grid-template-columns:1fr 50px 78px 80px;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)} .line:last-child{border-bottom:0}
+  .nm{font-weight:600}.muted{color:var(--muted)}.empty{color:var(--soft);text-align:center;padding:18px 0}
+  .person{padding:14px 0;border-bottom:1px solid var(--line)}.person:last-child{border-bottom:0}.person.cx{opacity:.6}
+  .person .top{display:flex;justify-content:space-between;gap:10px}.who{font-weight:600}.amt{font-weight:700;white-space:nowrap}
+  .items{color:var(--muted);font-size:13px;margin-top:2px}.acts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;align-items:center}
   .totbar{display:flex;justify-content:space-between;font-weight:700;margin-top:12px;padding-top:12px;border-top:2px solid var(--line)}
-  .center{min-height:100vh;display:grid;place-items:center;padding:24px 16px} .center .card{width:100%;max-width:380px;margin:0;text-align:center}
-  .logo-lg{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--brand),#34c77b);display:grid;place-items:center;color:#fff;font-size:26px;margin:0 auto 12px}
+  .task{border:1px solid var(--line);border-radius:var(--r-sm);padding:14px;margin-bottom:10px}
+  .task .th{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.tt{font-weight:650}.meta2{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .center{min-height:100vh;display:grid;place-items:center;padding:24px 16px}.center .card{width:100%;max-width:380px;margin:0;text-align:center}
+  .mark-lg{width:54px;height:54px;border-radius:15px;background:linear-gradient(135deg,var(--brand),#34d399);display:grid;place-items:center;color:#fff;font-size:27px;margin:0 auto 12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
 const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ICON={cart:'🍱',check:'✓'};
 const KEY=new URLSearchParams(location.search).get('key')||'';
-let PIN='';
+let PIN='',CUR='',TAB='collect',DATA=null,TASKS=null;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const msg=(t,k='ok')=>`<div class="msg ${k}">${t}</div>`;
-let CUR='';
 const money=n=>CUR+' '+Number(n||0).toFixed(2);
+const SL={pending:'Pending',in_progress:'In progress',completed:'Completed',cancelled:'Cancelled'};
+const SP={pending:'grey',in_progress:'info',completed:'ok',cancelled:'bad'};
 
 async function boyApi(method,url,body){
-  const headers={'Content-Type':'application/json','x-boy-key':KEY};
-  if(PIN) headers['x-boy-pin']=PIN;
+  const headers={'Content-Type':'application/json','x-boy-key':KEY};if(PIN)headers['x-boy-pin']=PIN;
   const r=await fetch(url,{method,headers,body:body?JSON.stringify(body):undefined});
-  const data=await r.json().catch(()=>({}));
-  if(!r.ok){ const e=new Error(data.error||('HTTP '+r.status)); e.pinRequired=data.pinRequired; e.status=r.status; throw e; }
-  return data;
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){const e=new Error(d.error||('HTTP '+r.status));e.pinRequired=d.pinRequired;throw e;}
+  return d;
 }
-
 function gate(note=''){
-  $('#root').innerHTML=`
-    <div class="center"><div class="card">
-      <div class="logo-lg">${ICON.cart}</div>
-      <h2>Lunch Collection</h2>
-      <p class="muted" style="margin:0 0 14px">Enter the PIN shared by your admin.</p>
-      <div id="gmsg">${note}</div>
-      <input id="pin" inputmode="numeric" maxlength="8" placeholder="PIN" style="text-align:center;letter-spacing:.3em;font-weight:700">
-      <div style="margin-top:14px"><button class="btn block" id="go">Continue</button></div>
-    </div></div>`;
-  $('#go').onclick=async()=>{ PIN=$('#pin').value.trim(); try{ await boyApi('POST','/api/boy/check'); load(); }catch(e){ $('#gmsg').innerHTML=msg(e.message,'err'); } };
-  $('#pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('#go').click();});
-  setTimeout(()=>$('#pin')?.focus(),50);
+  $('#root').innerHTML=`<div class="center"><div class="card"><div class="mark-lg">${ICON.cart}</div><h2>Lunch Collection</h2><p class="muted" style="margin:0 0 14px">Enter the PIN shared by your admin.</p><div id="g">${note}</div><input id="pin" inputmode="numeric" maxlength="8" placeholder="PIN" style="text-align:center;letter-spacing:.3em;font-weight:700"><div style="margin-top:14px"><button class="btn block" id="go">Continue</button></div></div></div>`;
+  $('#go').onclick=async()=>{PIN=$('#pin').value.trim();try{await boyApi('POST','/api/boy/check');load();}catch(e){$('#g').innerHTML=msg(e.message,'err');}};
+  $('#pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('#go').click();});setTimeout(()=>$('#pin')?.focus(),50);
 }
-
 async function load(){
   try{
-    const d=await boyApi('GET','/api/boy/aggregate'); CUR=d.state.currency;
-    render(d);
+    [DATA,TASKS]=await Promise.all([boyApi('GET','/api/boy/aggregate'),boyApi('GET','/api/boy/tasks')]);
+    CUR=DATA.state.currency;render();
   }catch(e){
-    if(e.pinRequired) return gate();
-    $('#root').innerHTML=`<div class="center"><div class="card"><div class="logo-lg">${ICON.cart}</div><h2>Access problem</h2>${msg(e.message,'err')}<p class="muted small">Ask your admin for a fresh link.</p></div></div>`;
+    if(e.pinRequired)return gate();
+    $('#root').innerHTML=`<div class="center"><div class="card"><div class="mark-lg">${ICON.cart}</div><h2>Access problem</h2>${msg(e.message,'err')}<p class="muted">Ask your admin for a fresh link.</p></div></div>`;
   }
 }
-
-function render(d){
-  const shop=d.shoppingList.map(r=>`<div class="line"><span class="nm">${esc(r.name)}</span><span class="muted">×${r.qty}</span><span class="muted">${money(r.unit_price)}</span><span style="text-align:right;font-weight:600">${money(r.qty*r.unit_price)}</span></div>`).join('');
-  const people=d.perPerson.map(p=>`
-    <div class="person">
-      <div class="top"><span class="who">${esc(p.name||p.email)}</span><span class="amt">${money(p.amount)}</span></div>
-      <div class="items">${p.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}${p.note?' · <i>'+esc(p.note)+'</i>':''}</div>
-      <div class="acts">
-        ${p.paid?'<span class="pill paid">'+ICON.check+' Paid</span>':'<span class="pill due">Due</span>'}
-        <button class="btn ${p.paid?'ghost':'ok'} sm" data-pay="${p.id}" data-paid="${p.paid?0:1}">${p.paid?'Undo':ICON.check+' Mark paid'}</button>
-        <button class="btn ghost sm" data-cancel="${p.id}">Cancel</button>
-      </div>
-    </div>`).join('');
+function render(){
   $('#root').innerHTML=`
-    <div class="topbar"><div class="wrap"><span class="logo">${ICON.cart}</span> Lunch Collection</div></div>
+    <div class="topbar"><div class="in"><span class="mark">${ICON.cart}</span> Lunch Collection</div></div>
     <div class="wrap">
-      <div class="card">
-        <div class="card-head"><h2>Shopping list</h2>${d.frozen?'<span class="pill paid">Final</span>':'<span class="pill due">Not final until '+d.state.aggregateTime+'</span>'}</div>
-        ${shop||'<p class="empty">No orders yet today.</p>'}
-        ${d.perPerson.length?`<div class="totbar"><span>Grand total</span><span>${money(d.grandTotal)}</span></div>`:''}
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Collect payment</h2><span class="pill neutral">${d.perPerson.length} ${d.perPerson.length===1?'person':'people'}</span></div>
-        ${people||'<p class="empty">No orders to collect.</p>'}
-        <div id="cmsg"></div>
-        <div style="margin-top:14px"><button class="btn ghost block" id="refresh">↻ Refresh</button></div>
-      </div>
+      <div class="tabs"><button data-t="collect" class="${TAB==='collect'?'active':''}">Collection</button><button data-t="tasks" class="${TAB==='tasks'?'active':''}">My Tasks${TASKS&&TASKS.length?' ('+TASKS.filter(t=>t.status!=='completed'&&t.status!=='cancelled').length+')':''}</button></div>
+      <div id="body"></div>
     </div>`;
-  $('#refresh').onclick=load;
-  document.querySelectorAll('[data-pay]').forEach(b=>b.onclick=async()=>{try{await boyApi('POST','/api/boy/payments/'+b.dataset.pay+'/paid',{paid:Number(b.dataset.paid)});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
-  document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{if(!confirm('Cancel this order?'))return;try{await boyApi('POST','/api/boy/orders/'+b.dataset.cancel+'/cancel',{});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+  $$('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.t;render();});
+  TAB==='collect'?renderCollect():renderTasks();
 }
-
-if(!KEY){ $('#root').innerHTML=`<div class="center"><div class="card"><div class="logo-lg">${ICON.cart}</div><h2>Missing access link</h2><p class="muted">Open the private link your admin shared with you.</p></div></div>`; }
-else { load(); }
+function renderCollect(){
+  const d=DATA;
+  const tile=(l,v)=>`<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  const shop=d.shoppingList.map(r=>`<div class="line"><span class="nm">${esc(r.name)}</span><span class="muted">×${r.qty}</span><span class="muted">${money(r.unit_price)}</span><span style="text-align:right;font-weight:600">${money(r.qty*r.unit_price)}</span></div>`).join('');
+  const people=d.perPerson.map(p=>{
+    let badge=p.cancelled?`<span class="pill bad">Cancelled</span>${p.paid?' <span class="pill ok">Paid</span>':''}`:(p.paid?'<span class="pill ok">'+ICON.check+' Paid</span>':'<span class="pill due">Due</span>');
+    let acts='';
+    if(!p.cancelled&&!p.paid){acts+=`<button class="btn sm" data-pay="${p.id}">${ICON.check} Mark paid</button>`;acts+=`<button class="btn ghost sm" data-cancel="${p.id}">Cancel</button>`;}
+    return `<div class="person ${p.cancelled?'cx':''}"><div class="top"><span class="who">${esc(p.name||p.email)}</span><span class="amt">${money(p.amount)}</span></div><div class="items">${p.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}${p.note?' · <i>'+esc(p.note)+'</i>':''}</div><div class="acts">${badge}${acts}</div></div>`;
+  }).join('');
+  $('#body').innerHTML=`
+    <div class="stats">${tile('Orders',d.activeCount)}${tile('To collect',money(d.grandTotal))}${tile('Collected',money(d.collected))}</div>
+    <div class="card"><div class="card-head"><h2>Shopping list</h2>${d.frozen?'<span class="pill ok">Final</span>':'<span class="pill due">Until '+d.state.aggregateTime+'</span>'}</div>${shop||'<p class="empty">No orders yet today.</p>'}${d.activeCount?`<div class="totbar"><span>Grand total</span><span>${money(d.grandTotal)}</span></div>`:''}</div>
+    <div class="card"><div class="card-head"><h2>Collect payment</h2><span class="pill neutral">${d.perPerson.length}</span></div>${d.perPerson.length?people:'<p class="empty">No orders.</p>'}<div id="cmsg"></div><div style="margin-top:14px"><button class="btn ghost block" id="refresh">↻ Refresh</button></div></div>`;
+  $('#refresh').onclick=load;
+  $$('[data-pay]').forEach(b=>b.onclick=async()=>{try{await boyApi('POST','/api/boy/payments/'+b.dataset.pay+'/paid',{paid:true});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+  $$('[data-cancel]').forEach(b=>b.onclick=async()=>{if(!confirm('Cancel this order? The employee will be emailed.'))return;try{await boyApi('POST','/api/boy/orders/'+b.dataset.cancel+'/cancel',{});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+}
+function renderTasks(){
+  const list=TASKS||[];
+  const body=list.length?list.map(t=>`<div class="task" data-tid="${t.id}">
+     <div class="th"><div><div class="tt">${esc(t.title)}</div><div class="meta2">${t.category_name?esc(t.category_name)+' · ':''}updated ${new Date(t.updated_at).toLocaleString()}</div></div><span class="pill ${SP[t.status]}">${SL[t.status]}</span></div>
+     ${t.details?`<div class="meta2" style="margin-top:8px">${esc(t.details)}</div>`:''}
+     <div class="row" style="margin-top:10px"><select class="ts" style="max-width:160px">${Object.keys(SL).map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${SL[s]}</option>`).join('')}</select><input class="tr" placeholder="Remarks" value="${esc(t.remarks||'')}" style="flex:1;min-width:140px"><button class="btn sm tsv">Save</button></div></div>`).join(''):'<p class="empty">No tasks assigned.</p>';
+  $('#body').innerHTML=`<div class="card"><div class="card-head"><h2>My tasks</h2><button class="btn ghost sm" id="rf">↻</button></div>${body}<div id="tmsg"></div></div>`;
+  $('#rf').onclick=load;
+  $$('.task').forEach(c=>c.querySelector('.tsv').onclick=async()=>{try{await boyApi('POST','/api/boy/tasks/'+c.dataset.tid+'/status',{status:c.querySelector('.ts').value,remarks:c.querySelector('.tr').value});load();}catch(e){$('#tmsg').innerHTML=msg(e.message,'err');}});
+}
+if(!KEY){$('#root').innerHTML=`<div class="center"><div class="card"><div class="mark-lg">${ICON.cart}</div><h2>Missing access link</h2><p class="muted">Open the private link your admin shared with you.</p></div></div>`;}
+else{load();}
 </script>
 </body>
 </html>

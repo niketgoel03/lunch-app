@@ -62,9 +62,18 @@ POST /api/orders             { items[], note }   -> 403 after cutoff
 PUT  /api/orders/mine        { items[], note }   -> 403 after cutoff
 DELETE /api/orders/mine                          -> 403 after cutoff
 
-GET  /api/aggregate                  (office_boy/admin) -> per-person + shopping totals
-POST /api/payments/:orderId/paid     (office_boy/admin)
-POST /api/orders/:orderId/cancel     (office_boy/admin) -> cancel any order on request
+GET  /api/aggregate                  (office_boy/admin) -> per-person + shopping totals + stats
+POST /api/payments/:orderId/paid     (office_boy/admin) -> paid=true; only admin may set paid=false
+POST /api/orders/:orderId/cancel     (office_boy/admin) -> emails employee; paid orders admin-only
+
+# Task assignment module
+GET  /api/tasks/mine                          (any logged-in employee)
+POST /api/tasks/:id/status                     {status, remarks}   (own tasks only)
+GET  /api/task-categories/mine                 (categories visible to me)
+GET/POST/PUT/DELETE /api/admin/task-categories[/:id]            (admin)
+PUT  /api/admin/task-categories/:id/visibility {user_ids:[]}     (admin)
+GET/POST/PUT/DELETE /api/admin/tasks[/:id]                       (admin: create/assign/track)
+GET  /api/boy/tasks ; POST /api/boy/tasks/:id/status            (office boy, no login)
 
 # Office boy WITHOUT login (authenticated by secret key + optional PIN, sent as
 # x-boy-key / x-boy-pin headers or ?key=&pin= query):
@@ -85,7 +94,16 @@ GET  /api/users  POST /api/users  PUT /api/users/:id     (admin)
 
 - **Domain whitelist** (`allowed_domains`, admin-configurable): when set, anyone with an email in those domains can self-onboard. When blank, only admin-added people can log in.
 - **Auto-onboarding:** an unknown but whitelisted email receives an OTP; on successful verification the account is created automatically as `staff` (no admin step). Unknown off-domain emails get no code and cannot verify.
-- **Office boy without login:** the office boy has an admin-created account with a dummy email (e.g. `rahul@ayasya.com`). They use a private link `/boy.html?key=<secret>` (optionally PIN-protected) to view the collection list, mark payments paid, and cancel orders — no OTP/mailbox needed. Admin can rotate the link or set/clear the PIN anytime.
+- **Office boy without login:** the office boy has an admin-created account with a dummy email (e.g. `rahul@ayasya.com`). They use a private link `/boy.html?key=<secret>` (optionally PIN-protected) to view the collection list, mark payments paid, cancel orders, and see/update their assigned tasks — no OTP/mailbox needed. Admin can rotate the link or set/clear the PIN anytime.
+
+### Orders: paid & cancelled are final states
+
+- **Paid is final.** Once an order is marked paid, the office boy sees no Undo/Cancel — only an **admin** can reverse a payment or cancel a paid order (a deliberate, separate process).
+- **Cancellation notifies the employee** by email and the order stays visible in the collection list with a **Cancelled** badge (and **Paid** too if payment was already recorded). Cancelled orders are excluded from the shopping list and money totals.
+
+### Task assignment module
+
+Admin creates **task categories** (Shopping, Courier, Bank Work, Office Supplies, External Visits seeded by default), assigns **tasks** to any employee with title/details/category, and configures **category visibility** per employee. Each task tracks status (Pending → In progress → Completed / Cancelled) with remarks and timestamps. Employees manage their tasks from the **My Tasks** tab; the office boy manages theirs from the no-login link.
 
 ## 5. Security (baked in from day 1)
 

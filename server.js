@@ -104,8 +104,10 @@ function boyAuth(req, res, next) {
   next();
 }
 
-const otpRequestLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
-const otpVerifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+// Limits are per client IP. Office staff often share one public IP (NAT), so keep
+// these generous enough for a whole office while still curbing abuse.
+const otpRequestLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const otpVerifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 // ---------- Auth routes ----------
 app.post('/api/auth/request-otp', otpRequestLimiter, wrap(async (req, res) => {
@@ -244,24 +246,27 @@ app.put('/api/orders/mine', auth, placeOrUpdate);
 app.delete('/api/orders/mine', auth, wrap(async (req, res) => {
   const st = orderingState();
   if (!st.isOpen) return res.status(403).json({ error: `Cannot cancel after cutoff (${st.cutoffTime}).` });
-  await db.run("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE user_id = $1 AND order_date = $2", [req.user.id, st.today]);
+  const o = await db.get("SELECT id FROM orders WHERE user_id = $1 AND order_date = $2 AND status <> 'cancelled'", [req.user.id, st.today]);
+  if (o) await cancelOrder(o.id);
   res.json({ ok: true });
 }));
 
 // ---------- Aggregation (shared by session office_boy/admin and the no-login boy link) ----------
+// Cancelled orders stay in the per-person list (with status) but are excluded from
+// the shopping list and money totals.
 async function aggregateData() {
   const st = orderingState();
   const orders = await db.all(`
     SELECT o.id, o.note, o.status, u.name, u.email
     FROM orders o JOIN users u ON u.id = o.user_id
-    WHERE o.order_date = $1 AND o.status <> 'cancelled'
-    ORDER BY u.name`, [st.today]);
+    WHERE o.order_date = $1
+    ORDER BY (o.status = 'cancelled'), u.name`, [st.today]);
 
   const perPerson = [];
   for (const o of orders) {
     const items = await db.all('SELECT name, qty, unit_price FROM order_items WHERE order_id = $1', [o.id]);
     const pay = (await db.get('SELECT amount, paid FROM payments WHERE order_id = $1', [o.id])) || { amount: 0, paid: 0 };
-    perPerson.push({ ...o, items, amount: pay.amount, paid: !!pay.paid });
+    perPerson.push({ ...o, items, amount: pay.amount, paid: !!pay.paid, cancelled: o.status === 'cancelled' });
   }
 
   const shoppingList = await db.all(`
@@ -270,8 +275,18 @@ async function aggregateData() {
     WHERE o.order_date = $1 AND o.status <> 'cancelled'
     GROUP BY oi.name, oi.unit_price ORDER BY oi.name`, [st.today]);
 
-  const grandTotal = perPerson.reduce((s, p) => s + p.amount, 0);
-  return { state: st, perPerson, shoppingList, grandTotal, frozen: st.afterAggregate };
+  const active = perPerson.filter((p) => !p.cancelled);
+  const grandTotal = active.reduce((s, p) => s + p.amount, 0);
+  const collected = active.filter((p) => p.paid).reduce((s, p) => s + p.amount, 0);
+  return {
+    state: st, perPerson, shoppingList, grandTotal, collected,
+    activeCount: active.length, paidCount: active.filter((p) => p.paid).length,
+    frozen: st.afterAggregate,
+  };
+}
+async function orderPaid(orderId) {
+  const p = await db.get('SELECT paid FROM payments WHERE order_id = $1', [orderId]);
+  return !!(p && p.paid);
 }
 async function setPaid(orderId, paid, collectedBy) {
   await db.run('UPDATE payments SET paid = $1, paid_at = $2, collected_by = $3 WHERE order_id = $4',
@@ -279,16 +294,28 @@ async function setPaid(orderId, paid, collectedBy) {
   if (paid) await db.run("UPDATE orders SET status = 'delivered' WHERE id = $1", [orderId]);
 }
 async function cancelOrder(orderId) {
+  const o = await db.get(
+    'SELECT o.id, o.status, u.email, u.name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1', [orderId]);
+  if (!o || o.status === 'cancelled') return false;
   await db.run("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [orderId]);
+  // Notify the employee (fire-and-forget; never blocks the response).
+  mailer.sendNotice(o.email, 'Your lunch order has been cancelled',
+    `Hi ${o.name || ''},\n\nYour lunch order for today has been cancelled. If you did not expect this, please contact the office.\n\n— Office Lunch Orders`);
+  return true;
 }
 
 app.get('/api/aggregate', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => res.json(await aggregateData())));
 app.post('/api/payments/:orderId/paid', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
-  await setPaid(Number(req.params.orderId), !!req.body.paid, req.user.id);
+  const wantPaid = !!req.body.paid;
+  // Paid is a final state: only an admin may reverse it.
+  if (!wantPaid && req.user.role !== 'admin') return res.status(403).json({ error: 'Only an admin can reverse a paid order' });
+  await setPaid(Number(req.params.orderId), wantPaid, req.user.id);
   res.json({ ok: true });
 }));
 app.post('/api/orders/:orderId/cancel', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
-  await cancelOrder(Number(req.params.orderId));
+  const id = Number(req.params.orderId);
+  if (await orderPaid(id) && req.user.role !== 'admin') return res.status(403).json({ error: 'Paid orders can only be cancelled by an admin' });
+  await cancelOrder(id);
   res.json({ ok: true });
 }));
 
@@ -296,11 +323,13 @@ app.post('/api/orders/:orderId/cancel', auth, requireRole('office_boy', 'admin')
 app.post('/api/boy/check', boyAuth, (req, res) => res.json({ ok: true }));
 app.get('/api/boy/aggregate', boyAuth, wrap(async (req, res) => res.json(await aggregateData())));
 app.post('/api/boy/payments/:orderId/paid', boyAuth, wrap(async (req, res) => {
-  await setPaid(Number(req.params.orderId), !!req.body.paid, null);
+  await setPaid(Number(req.params.orderId), true, null); // office boy can only mark paid, never undo
   res.json({ ok: true });
 }));
 app.post('/api/boy/orders/:orderId/cancel', boyAuth, wrap(async (req, res) => {
-  await cancelOrder(Number(req.params.orderId));
+  const id = Number(req.params.orderId);
+  if (await orderPaid(id)) return res.status(403).json({ error: 'A paid order cannot be cancelled here' });
+  await cancelOrder(id);
   res.json({ ok: true });
 }));
 
@@ -394,6 +423,140 @@ app.put('/api/users/:id', auth, requireRole('admin'), wrap(async (req, res) => {
   const role = ['staff', 'office_boy', 'admin'].includes(req.body.role) ? req.body.role : u.role;
   const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : u.active;
   await db.run('UPDATE users SET name = $1, role = $2, active = $3 WHERE id = $4', [name, role, active, id]);
+  res.json({ ok: true });
+}));
+
+// ---------- Employee task assignment module ----------
+const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
+const TASK_SELECT = `
+  SELECT t.id, t.title, t.details, t.status, t.remarks, t.category_id,
+         c.name AS category_name, t.assignee_id, u.name AS assignee_name, u.email AS assignee_email,
+         t.created_at, t.updated_at, t.completed_at
+  FROM tasks t
+  LEFT JOIN task_categories c ON c.id = t.category_id
+  LEFT JOIN users u ON u.id = t.assignee_id`;
+const TASK_ORDER = "ORDER BY (t.status IN ('completed','cancelled')), t.updated_at DESC";
+
+async function updateTaskStatus(id, status, remarks) {
+  const completedAt = status === 'completed' ? new Date().toISOString() : null;
+  await db.run('UPDATE tasks SET status = $1, remarks = COALESCE($2, remarks), completed_at = $3, updated_at = now() WHERE id = $4',
+    [status, remarks === undefined ? null : remarks, completedAt, id]);
+}
+
+// --- Admin: task categories + visibility ---
+app.get('/api/admin/task-categories', auth, requireRole('admin'), wrap(async (req, res) => {
+  const cats = await db.all('SELECT id, name, active FROM task_categories ORDER BY name');
+  for (const c of cats) {
+    c.visible_to = (await db.all('SELECT user_id FROM task_category_visibility WHERE category_id = $1', [c.id])).map((r) => r.user_id);
+  }
+  res.json(cats);
+}));
+app.post('/api/admin/task-categories', auth, requireRole('admin'), wrap(async (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  const r = await db.get('INSERT INTO task_categories(name) VALUES ($1) RETURNING id', [name]);
+  res.json({ ok: true, id: r.id });
+}));
+app.put('/api/admin/task-categories/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const c = await db.get('SELECT * FROM task_categories WHERE id = $1', [id]);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  const name = req.body.name !== undefined ? String(req.body.name).trim().slice(0, 80) : c.name;
+  const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : c.active;
+  await db.run('UPDATE task_categories SET name = $1, active = $2 WHERE id = $3', [name, active, id]);
+  res.json({ ok: true });
+}));
+app.delete('/api/admin/task-categories/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+  await db.run('DELETE FROM task_categories WHERE id = $1', [Number(req.params.id)]);
+  res.json({ ok: true });
+}));
+app.put('/api/admin/task-categories/:id/visibility', auth, requireRole('admin'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const ids = Array.isArray(req.body.user_ids) ? req.body.user_ids.map(Number).filter(Boolean) : [];
+  await db.tx(async (c) => {
+    await c.query('DELETE FROM task_category_visibility WHERE category_id = $1', [id]);
+    for (const uid of ids) {
+      await c.query('INSERT INTO task_category_visibility(category_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, uid]);
+    }
+  });
+  res.json({ ok: true });
+}));
+
+// --- Admin: tasks ---
+app.get('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) => {
+  res.json(await db.all(`${TASK_SELECT} ${TASK_ORDER}`));
+}));
+app.post('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 160);
+  if (!title) return res.status(400).json({ error: 'Title required' });
+  const details = String(req.body.details || '').slice(0, 1000);
+  const categoryId = req.body.category_id ? Number(req.body.category_id) : null;
+  const assigneeId = req.body.assignee_id ? Number(req.body.assignee_id) : null;
+  if (assigneeId) {
+    const u = await db.get('SELECT 1 FROM users WHERE id = $1 AND active = 1', [assigneeId]);
+    if (!u) return res.status(400).json({ error: 'Assignee not found' });
+  }
+  const r = await db.get(
+    'INSERT INTO tasks(category_id, title, details, assignee_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [categoryId, title, details, assigneeId, req.user.id]);
+  res.json({ ok: true, id: r.id });
+}));
+app.put('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await db.get('SELECT * FROM tasks WHERE id = $1', [id]);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const b = req.body || {};
+  const title = b.title !== undefined ? String(b.title).trim().slice(0, 160) : t.title;
+  const details = b.details !== undefined ? String(b.details).slice(0, 1000) : t.details;
+  const categoryId = b.category_id !== undefined ? (b.category_id ? Number(b.category_id) : null) : t.category_id;
+  const assigneeId = b.assignee_id !== undefined ? (b.assignee_id ? Number(b.assignee_id) : null) : t.assignee_id;
+  const status = b.status !== undefined && TASK_STATUSES.includes(b.status) ? b.status : t.status;
+  const remarks = b.remarks !== undefined ? String(b.remarks).slice(0, 1000) : t.remarks;
+  const completedAt = status === 'completed' ? (t.completed_at || new Date().toISOString()) : null;
+  await db.run(
+    'UPDATE tasks SET title=$1, details=$2, category_id=$3, assignee_id=$4, status=$5, remarks=$6, completed_at=$7, updated_at=now() WHERE id=$8',
+    [title, details, categoryId, assigneeId, status, remarks, completedAt, id]);
+  res.json({ ok: true });
+}));
+app.delete('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+  await db.run('DELETE FROM tasks WHERE id = $1', [Number(req.params.id)]);
+  res.json({ ok: true });
+}));
+
+// --- Employee (logged in): my tasks ---
+app.get('/api/tasks/mine', auth, wrap(async (req, res) => {
+  res.json(await db.all(`${TASK_SELECT} WHERE t.assignee_id = $1 ${TASK_ORDER}`, [req.user.id]));
+}));
+app.post('/api/tasks/:id/status', auth, wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await db.get('SELECT assignee_id FROM tasks WHERE id = $1', [id]);
+  if (!t || t.assignee_id !== req.user.id) return res.status(403).json({ error: 'Not your task' });
+  const status = req.body.status;
+  if (!TASK_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  await updateTaskStatus(id, status, req.body.remarks !== undefined ? String(req.body.remarks).slice(0, 1000) : undefined);
+  res.json({ ok: true });
+}));
+// Categories visible to the current employee (empty visibility = visible to all).
+app.get('/api/task-categories/mine', auth, wrap(async (req, res) => {
+  res.json(await db.all(`
+    SELECT c.id, c.name FROM task_categories c
+    WHERE c.active = 1 AND (
+      c.id NOT IN (SELECT category_id FROM task_category_visibility)
+      OR c.id IN (SELECT category_id FROM task_category_visibility WHERE user_id = $1)
+    ) ORDER BY c.name`, [req.user.id]));
+}));
+
+// --- Office boy (no login): tasks assigned to any office_boy user ---
+app.get('/api/boy/tasks', boyAuth, wrap(async (req, res) => {
+  res.json(await db.all(`${TASK_SELECT} WHERE u.role = 'office_boy' ${TASK_ORDER}`));
+}));
+app.post('/api/boy/tasks/:id/status', boyAuth, wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await db.get("SELECT t.id FROM tasks t JOIN users u ON u.id = t.assignee_id WHERE t.id = $1 AND u.role = 'office_boy'", [id]);
+  if (!t) return res.status(404).json({ error: 'Task not found' });
+  const status = req.body.status;
+  if (!TASK_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  await updateTaskStatus(id, status, req.body.remarks !== undefined ? String(req.body.remarks).slice(0, 1000) : undefined);
   res.json({ ok: true });
 }));
 

@@ -109,6 +109,34 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- ===== Employee task assignment module =====
+CREATE TABLE IF NOT EXISTS task_categories (
+  id     SERIAL PRIMARY KEY,
+  name   TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id           SERIAL PRIMARY KEY,
+  category_id  INTEGER REFERENCES task_categories(id) ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  details      TEXT NOT NULL DEFAULT '',
+  assignee_id  INTEGER REFERENCES users(id),
+  status       TEXT NOT NULL DEFAULT 'pending',   -- pending | in_progress | completed | cancelled
+  remarks      TEXT NOT NULL DEFAULT '',
+  created_by   INTEGER,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ
+);
+
+-- Which task categories are visible to which employees (empty for a category = all employees).
+CREATE TABLE IF NOT EXISTS task_category_visibility (
+  category_id INTEGER NOT NULL REFERENCES task_categories(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (category_id, user_id)
+);
 `;
 
 async function init() {
@@ -136,6 +164,13 @@ async function init() {
     await run('INSERT INTO menu_items(name, price) VALUES ($1, $2)', ['Veg Thali', 80]);
     await run('INSERT INTO menu_items(name, price) VALUES ($1, $2)', ['Sandwich', 50]);
     await run('INSERT INTO menu_items(name, price) VALUES ($1, $2)', ['Tea', 10]);
+  }
+
+  const tc = await get('SELECT COUNT(*)::int AS c FROM task_categories');
+  if (tc.c === 0) {
+    for (const n of ['Shopping', 'Courier', 'Bank Work', 'Office Supplies', 'External Visits']) {
+      await run('INSERT INTO task_categories(name) VALUES ($1)', [n]);
+    }
   }
 
   await loadSettings();

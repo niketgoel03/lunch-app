@@ -72,16 +72,23 @@ function smtpClient() {
   return smtp;
 }
 
-// Returns true when delivered out-of-band (real email); false in console/dev mode.
-async function sendOtp(email, code) {
-  const subject = 'Your lunch order login code';
-  const text = `Your one-time login code is ${code}. It expires in 5 minutes.`;
-
-  if (transport === 'graph') { await sendViaGraph(email, subject, text); return true; }
-  if (transport === 'smtp') { await smtpClient().sendMail({ from, to: email, subject, text }); return true; }
-
-  console.log(`[OTP] ${email} -> ${code} (expires in 5 min)`);
+// Generic delivery used by all notifications. Returns true when sent out-of-band.
+async function deliver(to, subject, text) {
+  if (transport === 'graph') { await sendViaGraph(to, subject, text); return true; }
+  if (transport === 'smtp') { await smtpClient().sendMail({ from, to, subject, text }); return true; }
+  console.log(`[MAIL] to=${to} | ${subject}\n${text}`);
   return false;
 }
 
-module.exports = { sendOtp, devMode: transport === 'console' };
+async function sendOtp(email, code) {
+  return deliver(email, 'Your lunch order login code',
+    `Your one-time login code is ${code}. It expires in 5 minutes.`);
+}
+
+// Fire-and-forget notice (e.g. order cancelled). Never throws to the caller.
+async function sendNotice(to, subject, text) {
+  try { return await deliver(to, subject, text); }
+  catch (e) { console.error('Notice mail error:', e.message); return false; }
+}
+
+module.exports = { sendOtp, sendNotice, devMode: transport === 'console' };
