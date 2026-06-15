@@ -124,6 +124,17 @@ const findP = (d, email) => d.perPerson.find(p => p.email === email);
   ok(rec && rec.duration_min !== null, 'admin audit shows completed outing with duration + name');
   ok((await call(admin, 'PUT', '/api/admin/outings/' + rec.id, { penalty_waived: true })).status === 200, 'admin can waive/override penalty');
 
+  console.log('PIN/password auth + OTP fallback');
+  ok((await call(jar(), 'POST', '/api/auth/login', { email: 'staff2@office.local', password: 'whatever' })).status === 401, 'login rejected before a PIN is set');
+  ok((await call(nb, 'GET', '/api/me')).data.user.hasPassword === false, 'OTP-onboarded user has no password yet');
+  ok((await call(jar(), 'POST', '/api/auth/set-password', { password: '1234' })).status === 401, 'set-password requires a session');
+  ok((await call(staff2, 'POST', '/api/auth/set-password', { password: '1234' })).status === 200, 'logged-in user sets a PIN');
+  const lj = jar();
+  ok((await call(lj, 'POST', '/api/auth/login', { email: 'staff2@office.local', password: '1234' })).status === 200, 'subsequent login with PIN works (no OTP)');
+  ok((await call(lj, 'GET', '/api/me')).data.user.hasPassword === true, 'PIN session established; hasPassword=true');
+  ok((await call(jar(), 'POST', '/api/auth/login', { email: 'staff2@office.local', password: '9999' })).status === 401, 'wrong PIN rejected');
+  ok((await call(jar(), 'POST', '/api/auth/set-password', { password: 'ab' })).status === 401, 'too-short / unauthenticated set-password rejected');
+
   console.log('Web push + notification center');
   ok((await call(admin, 'GET', '/api/push/vapid')).data.publicKey.length > 0, 'VAPID public key exposed');
   const subA = { endpoint: 'https://push.example.com/staff2', keys: { p256dh: 'BPp256dhKey', auth: 'authKey' } };

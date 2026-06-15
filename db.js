@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
   name       TEXT NOT NULL DEFAULT '',
   role       TEXT NOT NULL DEFAULT 'staff',
   active      INTEGER NOT NULL DEFAULT 1,
+  pass_hash  TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -179,6 +180,8 @@ CREATE TABLE IF NOT EXISTS outings (
 
 async function init() {
   await pool.query(SCHEMA);
+  // Migration for existing databases created before PIN/password auth.
+  try { await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pass_hash TEXT'); } catch (e) { /* column already present */ }
 
   const seed = async (key, value) =>
     run('INSERT INTO settings(key, value) VALUES ($1, $2) ON CONFLICT(key) DO NOTHING', [key, String(value)]);

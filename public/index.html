@@ -140,38 +140,51 @@ const STATUS_LBL={pending:'Pending',in_progress:'In progress',completed:'Complet
 
 /* ---------- Login ---------- */
 function renderLogin(step='email',email='',note=''){
-  $('#root').innerHTML=`
-   <div class="login"><div class="card">
-     <div class="mark">${ICON.order}</div>
-     <h1>Office Lunch Orders</h1>
-     <p class="sub muted">Sign in with your work email — we'll send a one-time code.</p>
-     <div id="lmsg">${note}</div>
-     ${step==='email'?`
-       <label>Work email</label>
-       <input id="email" type="email" value="${esc(email)}" placeholder="you@company.com" autocomplete="email">
-       <div style="margin-top:16px"><button class="btn block" id="send">Send code</button></div>`:`
-       <label>Email</label><input type="email" value="${esc(email)}" disabled>
-       <label>Enter the 6-digit code</label>
-       <input id="code" class="otp" inputmode="numeric" maxlength="6" placeholder="······">
-       <div style="margin-top:16px;display:flex;gap:10px">
-         <button class="btn ghost" id="back">Back</button>
-         <button class="btn block" id="verify">Verify & continue</button></div>`}
-   </div></div>`;
-  if(step==='email'){
-    $('#send').onclick=async()=>{const em=$('#email').value.trim();try{
-      const r=await api('/api/auth/request-otp',{method:'POST',body:JSON.stringify({email:em})});
-      let n=msg('If your email is eligible, a code is on its way. It expires in 5 minutes.','ok');
-      if(r.newUser)n+=msg("First time here? Your account is created automatically once you verify. 👋",'info');
-      if(r.devCode)n+=msg('Dev code: <b>'+r.devCode+'</b>','info');
-      renderLogin('code',em,n);
-    }catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
-    $('#email').addEventListener('keydown',e=>{if(e.key==='Enter')$('#send').click();});
-  }else{
-    $('#verify').onclick=async()=>{try{await api('/api/auth/verify-otp',{method:'POST',body:JSON.stringify({email,code:$('#code').value.trim()})});await boot();}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
+  const card=(inner)=>`<div class="login"><div class="card"><div class="mark">${ICON.order}</div><h1>Office Lunch Orders</h1>${inner}</div></div>`;
+  if(step==='code'){
+    $('#root').innerHTML=card(`<p class="sub muted">Enter the 6-digit code emailed to <b>${esc(email)}</b>.</p><div id="lmsg">${note}</div>
+      <label>Verification code</label><input id="code" class="otp" inputmode="numeric" maxlength="6" placeholder="······">
+      <div style="margin-top:16px;display:flex;gap:10px"><button class="btn ghost" id="back">Back</button><button class="btn block" id="verify">Verify & continue</button></div>`);
+    $('#verify').onclick=async()=>{try{await api('/api/auth/verify-otp',{method:'POST',body:JSON.stringify({email,code:$('#code').value.trim()})});await afterAuth(email);}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
     $('#back').onclick=()=>renderLogin('email',email);
     $('#code').addEventListener('keydown',e=>{if(e.key==='Enter')$('#verify').click();});
     setTimeout(()=>$('#code')?.focus(),50);
+    return;
   }
+  if(step==='setpin'){
+    $('#root').innerHTML=card(`<p class="sub muted">Create a PIN or password so you can log in faster next time.</p><div id="lmsg">${note}</div>
+      <label>New PIN / password</label><input id="p1" type="password" placeholder="At least 4 characters" autocomplete="new-password">
+      <label>Confirm</label><input id="p2" type="password" autocomplete="new-password">
+      <div style="margin-top:16px;display:flex;gap:10px"><button class="btn ghost" id="skip">Skip for now</button><button class="btn block" id="savePin">Save & continue</button></div>`);
+    $('#savePin').onclick=async()=>{const a=$('#p1').value,b=$('#p2').value;if(a.length<4){$('#lmsg').innerHTML=msg('Use at least 4 characters.','err');return;}if(a!==b){$('#lmsg').innerHTML=msg('Entries do not match.','err');return;}try{await api('/api/auth/set-password',{method:'POST',body:JSON.stringify({password:a})});renderShell();}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
+    $('#skip').onclick=()=>renderShell();
+    setTimeout(()=>$('#p1')?.focus(),50);
+    return;
+  }
+  // Default: email + PIN/password, with OTP as an alternative.
+  $('#root').innerHTML=card(`<p class="sub muted">Sign in with your work email.</p><div id="lmsg">${note}</div>
+    <label>Work email</label><input id="email" type="email" value="${esc(email)}" placeholder="you@company.com" autocomplete="email">
+    <label>PIN / password</label><input id="pw" type="password" placeholder="Your PIN or password" autocomplete="current-password">
+    <div style="margin-top:16px"><button class="btn block" id="login">Login</button></div>
+    <div style="margin:14px 0;text-align:center;color:var(--soft);font-size:12px">— or —</div>
+    <button class="btn ghost block" id="otp">✉️ Login with OTP</button>
+    <p class="sub muted" style="text-align:center;margin-top:12px">First time here, or forgot your PIN? Use <b>Login with OTP</b>.</p>`);
+  $('#login').onclick=async()=>{const em=$('#email').value.trim();const pw=$('#pw').value;
+    if(!em){$('#lmsg').innerHTML=msg('Enter your email.','err');return;}
+    if(!pw){$('#lmsg').innerHTML=msg('Enter your PIN/password, or use Login with OTP.','err');return;}
+    try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:em,password:pw})});await boot();}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
+  $('#otp').onclick=async()=>{const em=$('#email').value.trim();if(!em){$('#lmsg').innerHTML=msg('Enter your email first.','err');return;}
+    try{const r=await api('/api/auth/request-otp',{method:'POST',body:JSON.stringify({email:em})});
+      let n=msg('If your email is eligible, a code is on its way (valid 5 minutes).','ok');
+      if(r.newUser)n+=msg("First time here? Your account is created when you verify. 👋",'info');
+      if(r.devCode)n+=msg('Dev code: <b>'+r.devCode+'</b>','info');
+      renderLogin('code',em,n);}catch(e){$('#lmsg').innerHTML=msg(e.message,'err');}};
+  $('#pw').addEventListener('keydown',e=>{if(e.key==='Enter')$('#login').click();});
+  setTimeout(()=>$('#email')?.focus(),50);
+}
+async function afterAuth(email){
+  const d=await api('/api/me'); ME=d.user; STATE=d.state;
+  if(!ME.hasPassword){ renderLogin('setpin', email); } else { renderShell(); }
 }
 
 /* ---------- Shell ---------- */
@@ -209,6 +222,7 @@ function renderShell(){
   $('#scrim').onclick=()=>{$('#sb').classList.remove('open');$('#scrim').classList.remove('show');};
   $$('#nav button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;$('#sb').classList.remove('open');$('#scrim').classList.remove('show');route();});
   route();
+  enablePush(true);
 }
 function route(){
   $$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TAB));
@@ -519,7 +533,7 @@ function maybeIOSBanner(){
 }
 
 /* ---------- Boot ---------- */
-async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();enablePush(true);}catch{renderLogin();}}
+async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();}catch{renderLogin();}}
 boot();
 </script>
 </body>

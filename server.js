@@ -84,7 +84,7 @@ const auth = wrap(async (req, res, next) => {
   let payload;
   try { payload = jwt.verify(token, JWT_SECRET); }
   catch { return res.status(401).json({ error: 'Session expired' }); }
-  const user = await db.get('SELECT id, email, name, role, active FROM users WHERE id = $1', [payload.uid]);
+  const user = await db.get('SELECT id, email, name, role, active, pass_hash FROM users WHERE id = $1', [payload.uid]);
   if (!user || !user.active) return res.status(401).json({ error: 'Account inactive' });
   req.user = user;
   next();
@@ -166,8 +166,30 @@ app.post('/api/auth/verify-otp', otpVerifyLimiter, wrap(async (req, res) => {
 app.post('/api/auth/logout', (req, res) => { res.clearCookie('session'); res.json({ ok: true }); });
 
 app.get('/api/me', auth, (req, res) => {
-  res.json({ user: { email: req.user.email, name: req.user.name, role: req.user.role }, state: orderingState() });
+  res.json({ user: { email: req.user.email, name: req.user.name, role: req.user.role, hasPassword: !!req.user.pass_hash }, state: orderingState() });
 });
+
+// PIN / password login (faster repeat logins; OTP remains available as a fallback).
+const loginLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 40, standardHeaders: true, legacyHeaders: false });
+app.post('/api/auth/login', loginLimiter, wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !password) return res.status(400).json({ error: 'Email and PIN/password required' });
+  const user = await db.get('SELECT id, email, name, role, active, pass_hash FROM users WHERE email = $1', [email]);
+  // Generic message — never reveal whether the email exists or has a password set.
+  if (!user || !user.active || !user.pass_hash || !bcrypt.compareSync(password, user.pass_hash)) {
+    return res.status(401).json({ error: 'Invalid email or PIN/password' });
+  }
+  setSession(res, user);
+  res.json({ ok: true, user: { email: user.email, name: user.name, role: user.role, hasPassword: true } });
+}));
+// Set / change PIN or password (must be logged in — used right after OTP onboarding).
+app.post('/api/auth/set-password', auth, wrap(async (req, res) => {
+  const password = String(req.body.password || '');
+  if (password.length < 4 || password.length > 128) return res.status(400).json({ error: 'PIN/password must be 4–128 characters' });
+  await db.run('UPDATE users SET pass_hash = $1 WHERE id = $2', [bcrypt.hashSync(password, 10), req.user.id]);
+  res.json({ ok: true });
+}));
 
 // ---------- Web push ----------
 app.get('/api/push/vapid', (req, res) => res.json({ publicKey: push.publicKey() }));

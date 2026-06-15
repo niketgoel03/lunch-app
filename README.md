@@ -51,10 +51,12 @@ Configurable settings (admin UI): `cutoff_time`, `aggregate_time`, `timezone`, `
 ## 4. API surface
 
 ```
-POST /api/auth/request-otp   { email }          -> sends 6-digit code
-POST /api/auth/verify-otp    { email, code }     -> sets session cookie
+POST /api/auth/request-otp   { email }            -> sends 6-digit code
+POST /api/auth/verify-otp    { email, code }       -> sets session cookie (+ auto-onboard)
+POST /api/auth/login         { email, password }   -> PIN/password login (no OTP)
+POST /api/auth/set-password  { password }          -> set/change PIN (logged in)
 POST /api/auth/logout
-GET  /api/me
+GET  /api/me                                       -> includes hasPassword
 
 GET  /api/menu
 GET  /api/orders/mine
@@ -109,6 +111,7 @@ GET  /api/users  POST /api/users  PUT /api/users/:id     (admin)
 
 - **Domain whitelist** (`allowed_domains`, admin-configurable): when set, anyone with an email in those domains can self-onboard. When blank, only admin-added people can log in.
 - **Auto-onboarding:** an unknown but whitelisted email receives an OTP; on successful verification the account is created automatically as `staff` (no admin step). Unknown off-domain emails get no code and cannot verify.
+- **Login methods:** after first-time OTP verification the user is prompted to create a **PIN or password** (bcrypt-hashed). Subsequent logins use **email + PIN** (no OTP needed). The login screen always offers **"Login with OTP"** as a passwordless alternative and a forgot-PIN fallback. Both methods set the same session cookie; login errors are generic to avoid revealing whether an email exists.
 - **Office boy without login:** the office boy has an admin-created account with a dummy email (e.g. `rahul@ayasya.com`). They use a private link `/boy.html?key=<secret>` (optionally PIN-protected) to view the collection list, mark payments paid, cancel orders, and see/update their assigned tasks — no OTP/mailbox needed. Admin can rotate the link or set/clear the PIN anytime.
 
 ### Orders: paid & cancelled are final states
