@@ -232,16 +232,63 @@ Open `https://lunch.yourcompany.com`, enter the `ADMIN_EMAIL`, receive the OTP b
 
 ---
 
-## Updating to a new version
+## Deploying from GitHub (recommended)
+
+The repo is private, so give the VPS a **read-only deploy key** once, then deploy/update with `git pull`.
+
+### One-time: add a deploy key
 
 ```bash
-# copy new files up (same rsync as step 5, into /tmp/lunch-app)
-sudo rsync -a --exclude node_modules --exclude .env /tmp/lunch-app/ /opt/lunch-app/
-sudo chown -R lunch:lunch /opt/lunch-app
+# as the lunch user, create an SSH key (no passphrase)
+sudo -u lunch ssh-keygen -t ed25519 -f /opt/lunch-app/.ssh/id_ed25519 -N "" -C "vps-deploy"
+sudo -u lunch cat /opt/lunch-app/.ssh/id_ed25519.pub
+```
+
+Copy that public key into GitHub → repo **Settings → Deploy keys → Add deploy key** (leave "Allow write access" unchecked). Tell git to use it:
+
+```bash
+sudo -u lunch tee -a /opt/lunch-app/.ssh/config > /dev/null <<'CFG'
+Host github.com
+  IdentityFile /opt/lunch-app/.ssh/id_ed25519
+  IdentitiesOnly yes
+CFG
+sudo -u lunch chmod 600 /opt/lunch-app/.ssh/config
+```
+
+### One-time: clone into place (preserving your existing .env)
+
+If `/opt/lunch-app` already holds a non-git copy, back up `.env`, clone fresh, then restore it:
+
+```bash
+sudo cp /opt/lunch-app/.env /tmp/lunch.env.bak 2>/dev/null || true
+sudo -u lunch git clone git@github.com:niketgoel03/lunch-app.git /opt/lunch-app-git
+sudo cp /tmp/lunch.env.bak /opt/lunch-app-git/.env 2>/dev/null || true
+# swap directories
+sudo systemctl stop nginx 2>/dev/null
+sudo -u lunch pm2 delete lunch-app 2>/dev/null || true
+sudo mv /opt/lunch-app /opt/lunch-app-old && sudo mv /opt/lunch-app-git /opt/lunch-app
 cd /opt/lunch-app && sudo -u lunch npm install --omit=dev
+sudo -u lunch pm2 start ecosystem.config.js && sudo -u lunch pm2 save
+sudo systemctl start nginx
+```
+
+If this is a brand-new server, just do steps 1–9 above but replace the rsync in step 5 with the `git clone` here.
+
+## Updating to the latest version
+
+Once it's a git checkout, every future deploy is three commands:
+
+```bash
+cd /opt/lunch-app
+sudo -u lunch git pull
+sudo -u lunch npm install --omit=dev      # only if dependencies changed
 sudo -u lunch pm2 reload lunch-app        # zero-downtime restart
 sudo -u lunch pm2 logs lunch-app --lines 30 --nostream
 ```
+
+**No manual DB migration is needed.** On startup the app runs `CREATE TABLE IF NOT EXISTS` and seeds any new settings keys (e.g. `allowed_domains`, `boy_access_key`) with `ON CONFLICT DO NOTHING`, so existing data is untouched and new columns/settings appear automatically.
+
+After updating to this version: open the **Admin** tab, set **Allowed email domains** (e.g. `ayasya.com`), add the office boy under **People** with a dummy email and role `office_boy`, then copy their **Office boy access link** to share.
 
 ## Database backups (cron)
 
