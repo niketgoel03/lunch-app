@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 // Connection: prefer a single DATABASE_URL, else discrete PG* vars.
@@ -121,6 +122,9 @@ async function init() {
   await seed('currency', process.env.CURRENCY || 'INR');
   await seed('allow_custom_items', '1');
   await seed('ordering_open', '1');
+  await seed('allowed_domains', process.env.ALLOWED_DOMAINS || '');   // comma-separated; empty = no self-onboarding
+  await seed('boy_access_key', crypto.randomBytes(24).toString('hex')); // secret for office-boy no-login link
+  await seed('boy_pin_hash', '');                                      // optional bcrypt PIN; empty = link only
 
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@office.local').toLowerCase();
   const adminName = process.env.ADMIN_NAME || 'Office Admin';

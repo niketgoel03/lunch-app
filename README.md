@@ -62,19 +62,35 @@ POST /api/orders             { items[], note }   -> 403 after cutoff
 PUT  /api/orders/mine        { items[], note }   -> 403 after cutoff
 DELETE /api/orders/mine                          -> 403 after cutoff
 
-GET  /api/aggregate          (office_boy/admin)  -> per-person + shopping totals
-POST /api/payments/:orderId/paid (office_boy/admin)
+GET  /api/aggregate                  (office_boy/admin) -> per-person + shopping totals
+POST /api/payments/:orderId/paid     (office_boy/admin)
+POST /api/orders/:orderId/cancel     (office_boy/admin) -> cancel any order on request
 
-GET  /api/settings           (admin)
-PUT  /api/settings           (admin)
+# Office boy WITHOUT login (authenticated by secret key + optional PIN, sent as
+# x-boy-key / x-boy-pin headers or ?key=&pin= query):
+POST /api/boy/check
+GET  /api/boy/aggregate
+POST /api/boy/payments/:orderId/paid
+POST /api/boy/orders/:orderId/cancel
+
+GET  /api/settings           (admin)   -> includes allowed_domains, boy_access_key, boy_pin_set
+PUT  /api/settings           (admin)   -> set cutoff/aggregate/tz/currency/allowed_domains/toggles
+POST /api/admin/boy-key      (admin)   -> rotate the office-boy access link
+PUT  /api/admin/boy-pin      (admin)   -> set/clear the office-boy PIN
 POST /api/menu  PUT /api/menu/:id  DELETE /api/menu/:id  (admin)
-GET  /api/users  POST /api/users  (admin)
+GET  /api/users  POST /api/users  PUT /api/users/:id     (admin)
 ```
+
+### Onboarding & access model
+
+- **Domain whitelist** (`allowed_domains`, admin-configurable): when set, anyone with an email in those domains can self-onboard. When blank, only admin-added people can log in.
+- **Auto-onboarding:** an unknown but whitelisted email receives an OTP; on successful verification the account is created automatically as `staff` (no admin step). Unknown off-domain emails get no code and cannot verify.
+- **Office boy without login:** the office boy has an admin-created account with a dummy email (e.g. `rahul@ayasya.com`). They use a private link `/boy.html?key=<secret>` (optionally PIN-protected) to view the collection list, mark payments paid, and cancel orders — no OTP/mailbox needed. Admin can rotate the link or set/clear the PIN anytime.
 
 ## 5. Security (baked in from day 1)
 
-- **AuthN:** OTP is random 6 digits, hashed (bcrypt) at rest, 5-min expiry, max 5 attempts, single-use. No code is ever returned in the API response in prod.
-- **AuthZ:** RBAC middleware per route; users can only touch their own order.
+- **AuthN:** OTP is random 6 digits, hashed (bcrypt) at rest, 5-min expiry, max 5 attempts, single-use. No code is ever returned in the API response in prod. Self-onboarding is gated to admin-whitelisted email domains.
+- **AuthZ:** RBAC middleware per route; users can only touch their own order. The office-boy no-login link is a high-entropy secret (constant-time compared) with an optional bcrypt-hashed PIN, and is rotatable — treat it like a bearer token and prefer HTTPS-only sharing.
 - **Sessions:** JWT in an HttpOnly, SameSite=Lax cookie; `Secure` when behind TLS.
 - **Transport:** Run behind a TLS-terminating reverse proxy (nginx/Caddy) — TLS 1.2+.
 - **Input:** All bodies validated and parameterized SQL (no string-built queries → no SQLi).
@@ -109,7 +125,8 @@ lunch-order-app/
 ├── server.js          # app, auth, routes, cutoff enforcement (async pg)
 ├── db.js              # pg pool, async query/tx helpers, schema + seed, settings cache
 ├── mailer.js          # mail transports: graph | smtp | console
-├── public/index.html  # single-page UI (login, order, office-boy, admin)
+├── public/index.html  # single-page UI (login, order, collection, admin)
+├── public/boy.html    # office-boy no-login collection page (secret link + PIN)
 ├── package.json
 ├── .env.example
 ├── ecosystem.config.js # PM2 process config for production

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunch Collection — Office Boy</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --bg2:#eef1f8; --card:#fff; --line:#e6e9f0; --ink:#10131a; --muted:#697086; --soft:#9aa1b2;
+    --brand:#0f9d58; --brand-d:#0c8a4d; --brand-soft:#e7f6ee;
+    --ok:#0f9d58; --ok-soft:#e7f6ee; --warn:#c47d00; --warn-soft:#fdf3e2; --bad:#dc2626; --bad-soft:#fdecec;
+    --shadow:0 1px 2px rgba(16,19,26,.04),0 8px 24px rgba(16,19,26,.06); --radius:16px;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:linear-gradient(180deg,var(--bg),var(--bg2));min-height:100vh;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:620px;margin:0 auto;padding:0 16px}
+  .topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .topbar .wrap{display:flex;align-items:center;gap:10px;height:60px;font-weight:700}
+  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#34c77b);display:grid;place-items:center;color:#fff;font-size:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin:18px 0}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .card-head h2{margin:0;font-size:16px}
+  h2{font-size:16px;margin:0 0 8px}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:10px 0 6px}
+  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px}
+  input:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .btn{border:0;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+  .btn:hover{background:var(--brand-d)} .btn.block{width:100%} .btn.ghost{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+  .btn.sm{padding:8px 12px;font-size:13px} .btn.ok{background:var(--ok)} .btn:disabled{opacity:.5}
+  .pill{display:inline-flex;gap:6px;align-items:center;padding:4px 11px;border-radius:99px;font-size:12px;font-weight:600}
+  .pill.paid{background:var(--ok-soft);color:var(--ok)} .pill.due{background:var(--warn-soft);color:var(--warn)} .pill.neutral{background:#eef0ff;color:#4338ca}
+  .msg{padding:11px 13px;border-radius:11px;font-size:13.5px;margin:10px 0}
+  .msg.err{background:var(--bad-soft);color:#a31515} .msg.ok{background:var(--ok-soft);color:#0b7a43}
+  .line{display:grid;grid-template-columns:1fr 50px 80px 80px;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)} .line:last-child{border-bottom:0}
+  .nm{font-weight:600} .muted{color:var(--muted)} .empty{color:var(--soft);text-align:center;padding:18px 0}
+  .person{padding:14px 0;border-bottom:1px solid var(--line)} .person:last-child{border-bottom:0}
+  .person .top{display:flex;justify-content:space-between;gap:10px} .who{font-weight:600} .amt{font-weight:700;white-space:nowrap}
+  .items{color:var(--muted);font-size:13px;margin-top:2px} .acts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+  .totbar{display:flex;justify-content:space-between;font-weight:700;margin-top:12px;padding-top:12px;border-top:2px solid var(--line)}
+  .center{min-height:100vh;display:grid;place-items:center;padding:24px 16px} .center .card{width:100%;max-width:380px;margin:0;text-align:center}
+  .logo-lg{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--brand),#34c77b);display:grid;place-items:center;color:#fff;font-size:26px;margin:0 auto 12px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const $=(s,r=document)=>r.querySelector(s);
+const ICON={cart:'🍱',check:'✓'};
+const KEY=new URLSearchParams(location.search).get('key')||'';
+let PIN='';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const msg=(t,k='ok')=>`<div class="msg ${k}">${t}</div>`;
+let CUR='';
+const money=n=>CUR+' '+Number(n||0).toFixed(2);
+
+async function boyApi(method,url,body){
+  const headers={'Content-Type':'application/json','x-boy-key':KEY};
+  if(PIN) headers['x-boy-pin']=PIN;
+  const r=await fetch(url,{method,headers,body:body?JSON.stringify(body):undefined});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok){ const e=new Error(data.error||('HTTP '+r.status)); e.pinRequired=data.pinRequired; e.status=r.status; throw e; }
+  return data;
+}
+
+function gate(note=''){
+  $('#root').innerHTML=`
+    <div class="center"><div class="card">
+      <div class="logo-lg">${ICON.cart}</div>
+      <h2>Lunch Collection</h2>
+      <p class="muted" style="margin:0 0 14px">Enter the PIN shared by your admin.</p>
+      <div id="gmsg">${note}</div>
+      <input id="pin" inputmode="numeric" maxlength="8" placeholder="PIN" style="text-align:center;letter-spacing:.3em;font-weight:700">
+      <div style="margin-top:14px"><button class="btn block" id="go">Continue</button></div>
+    </div></div>`;
+  $('#go').onclick=async()=>{ PIN=$('#pin').value.trim(); try{ await boyApi('POST','/api/boy/check'); load(); }catch(e){ $('#gmsg').innerHTML=msg(e.message,'err'); } };
+  $('#pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('#go').click();});
+  setTimeout(()=>$('#pin')?.focus(),50);
+}
+
+async function load(){
+  try{
+    const d=await boyApi('GET','/api/boy/aggregate'); CUR=d.state.currency;
+    render(d);
+  }catch(e){
+    if(e.pinRequired) return gate();
+    $('#root').innerHTML=`<div class="center"><div class="card"><div class="logo-lg">${ICON.cart}</div><h2>Access problem</h2>${msg(e.message,'err')}<p class="muted small">Ask your admin for a fresh link.</p></div></div>`;
+  }
+}
+
+function render(d){
+  const shop=d.shoppingList.map(r=>`<div class="line"><span class="nm">${esc(r.name)}</span><span class="muted">×${r.qty}</span><span class="muted">${money(r.unit_price)}</span><span style="text-align:right;font-weight:600">${money(r.qty*r.unit_price)}</span></div>`).join('');
+  const people=d.perPerson.map(p=>`
+    <div class="person">
+      <div class="top"><span class="who">${esc(p.name||p.email)}</span><span class="amt">${money(p.amount)}</span></div>
+      <div class="items">${p.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}${p.note?' · <i>'+esc(p.note)+'</i>':''}</div>
+      <div class="acts">
+        ${p.paid?'<span class="pill paid">'+ICON.check+' Paid</span>':'<span class="pill due">Due</span>'}
+        <button class="btn ${p.paid?'ghost':'ok'} sm" data-pay="${p.id}" data-paid="${p.paid?0:1}">${p.paid?'Undo':ICON.check+' Mark paid'}</button>
+        <button class="btn ghost sm" data-cancel="${p.id}">Cancel</button>
+      </div>
+    </div>`).join('');
+  $('#root').innerHTML=`
+    <div class="topbar"><div class="wrap"><span class="logo">${ICON.cart}</span> Lunch Collection</div></div>
+    <div class="wrap">
+      <div class="card">
+        <div class="card-head"><h2>Shopping list</h2>${d.frozen?'<span class="pill paid">Final</span>':'<span class="pill due">Not final until '+d.state.aggregateTime+'</span>'}</div>
+        ${shop||'<p class="empty">No orders yet today.</p>'}
+        ${d.perPerson.length?`<div class="totbar"><span>Grand total</span><span>${money(d.grandTotal)}</span></div>`:''}
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Collect payment</h2><span class="pill neutral">${d.perPerson.length} ${d.perPerson.length===1?'person':'people'}</span></div>
+        ${people||'<p class="empty">No orders to collect.</p>'}
+        <div id="cmsg"></div>
+        <div style="margin-top:14px"><button class="btn ghost block" id="refresh">↻ Refresh</button></div>
+      </div>
+    </div>`;
+  $('#refresh').onclick=load;
+  document.querySelectorAll('[data-pay]').forEach(b=>b.onclick=async()=>{try{await boyApi('POST','/api/boy/payments/'+b.dataset.pay+'/paid',{paid:Number(b.dataset.paid)});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+  document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{if(!confirm('Cancel this order?'))return;try{await boyApi('POST','/api/boy/orders/'+b.dataset.cancel+'/cancel',{});load();}catch(e){$('#cmsg').innerHTML=msg(e.message,'err');}});
+}
+
+if(!KEY){ $('#root').innerHTML=`<div class="center"><div class="card"><div class="logo-lg">${ICON.cart}</div><h2>Missing access link</h2><p class="muted">Open the private link your admin shared with you.</p></div></div>`; }
+else { load(); }
+</script>
+</body>
+</html>

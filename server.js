@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
@@ -22,10 +23,9 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 
-// Wrap async handlers so rejected promises become clean 500s instead of crashes.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// ---------- Time helpers (configured timezone is source of truth) ----------
+// ---------- Helpers ----------
 function nowInTz(tz) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -37,7 +37,22 @@ function nowInTz(tz) {
 }
 const hhmmToMinutes = (s) => { const [h, m] = String(s).split(':').map(Number); return h * 60 + m; };
 
-// Synchronous: reads from the in-memory settings cache populated at startup.
+function allowedDomains() {
+  return (db.getSetting('allowed_domains') || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+// null = no whitelist configured; true/false = whether the email's domain is allowed
+function domainAllowed(email) {
+  const list = allowedDomains();
+  if (list.length === 0) return null;
+  const dom = String(email).split('@')[1] || '';
+  return list.includes(dom.toLowerCase());
+}
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a)); const bb = Buffer.from(String(b));
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+
 function orderingState() {
   const tz = db.getSetting('timezone');
   const { date, minutes } = nowInTz(tz);
@@ -57,7 +72,7 @@ function orderingState() {
   };
 }
 
-// ---------- Auth ----------
+// ---------- Auth (session) ----------
 function setSession(res, user) {
   const token = jwt.sign({ uid: user.id, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
   res.cookie('session', token, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE, maxAge: 12 * 3600 * 1000 });
@@ -76,6 +91,19 @@ const auth = wrap(async (req, res, next) => {
 const requireRole = (...roles) => (req, res, next) =>
   roles.includes(req.user.role) ? next() : res.status(403).json({ error: 'Forbidden' });
 
+// ---------- Office-boy no-login auth (secret key + optional PIN) ----------
+function boyAuth(req, res, next) {
+  const key = req.get('x-boy-key') || req.query.key || (req.body && req.body.key);
+  const real = db.getSetting('boy_access_key');
+  if (!real || !key || !safeEqual(key, real)) return res.status(401).json({ error: 'Invalid access link' });
+  const pinHash = db.getSetting('boy_pin_hash');
+  if (pinHash) {
+    const pin = req.get('x-boy-pin') || req.query.pin || (req.body && req.body.pin);
+    if (!pin || !bcrypt.compareSync(String(pin), pinHash)) return res.status(401).json({ error: 'PIN required', pinRequired: true });
+  }
+  next();
+}
+
 const otpRequestLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
 const otpVerifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 
@@ -85,15 +113,21 @@ app.post('/api/auth/request-otp', otpRequestLimiter, wrap(async (req, res) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
 
   const user = await db.get('SELECT id, active FROM users WHERE email = $1', [email]);
-  if (user && user.active) {
+  const allowed = domainAllowed(email); // null | true | false
+  const isExisting = !!(user && user.active);
+  const canOnboard = allowed === true; // whitelist configured and domain matches
+
+  if (isExisting || canOnboard) {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const codeHash = bcrypt.hashSync(code, 10);
     const expiresAt = Date.now() + 5 * 60 * 1000;
     await db.run('UPDATE otps SET consumed = 1 WHERE email = $1 AND consumed = 0', [email]);
     await db.run('INSERT INTO otps(email, code_hash, expires_at) VALUES ($1, $2, $3)', [email, codeHash, expiresAt]);
     try { await mailer.sendOtp(email, code); } catch (e) { console.error('Mail error:', e.message); }
-    if (mailer.devMode) return res.json({ ok: true, devCode: code });
+    if (mailer.devMode) return res.json({ ok: true, devCode: code, newUser: !isExisting });
+    return res.json({ ok: true, newUser: !isExisting });
   }
+  // Unknown email and not eligible to onboard. Do not reveal which case it is.
   return res.json({ ok: true });
 }));
 
@@ -112,8 +146,16 @@ app.post('/api/auth/verify-otp', otpVerifyLimiter, wrap(async (req, res) => {
     return res.status(400).json({ error: 'Incorrect code' });
   }
   await db.run('UPDATE otps SET consumed = 1 WHERE id = $1', [row.id]);
-  const user = await db.get('SELECT id, email, name, role, active FROM users WHERE email = $1', [email]);
-  if (!user || !user.active) return res.status(401).json({ error: 'Account inactive' });
+
+  let user = await db.get('SELECT id, email, name, role, active FROM users WHERE email = $1', [email]);
+  if (!user) {
+    // First-time onboarding: only for whitelisted domains.
+    if (domainAllowed(email) !== true) return res.status(403).json({ error: 'This email domain is not allowed' });
+    const name = email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const r = await db.get('INSERT INTO users(email, name, role) VALUES ($1, $2, $3) RETURNING id, email, name, role, active', [email, name, 'staff']);
+    user = r;
+  }
+  if (!user.active) return res.status(401).json({ error: 'Account inactive' });
   setSession(res, user);
   res.json({ ok: true, user: { email: user.email, name: user.name, role: user.role } });
 }));
@@ -206,8 +248,8 @@ app.delete('/api/orders/mine', auth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ---------- Aggregation (office boy / admin) ----------
-app.get('/api/aggregate', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
+// ---------- Aggregation (shared by session office_boy/admin and the no-login boy link) ----------
+async function aggregateData() {
   const st = orderingState();
   const orders = await db.all(`
     SELECT o.id, o.note, o.status, u.name, u.email
@@ -229,18 +271,40 @@ app.get('/api/aggregate', auth, requireRole('office_boy', 'admin'), wrap(async (
     GROUP BY oi.name, oi.unit_price ORDER BY oi.name`, [st.today]);
 
   const grandTotal = perPerson.reduce((s, p) => s + p.amount, 0);
-  res.json({ state: st, perPerson, shoppingList, grandTotal, frozen: st.afterAggregate });
-}));
-
-app.post('/api/payments/:orderId/paid', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
-  const paid = req.body.paid ? 1 : 0;
+  return { state: st, perPerson, shoppingList, grandTotal, frozen: st.afterAggregate };
+}
+async function setPaid(orderId, paid, collectedBy) {
   await db.run('UPDATE payments SET paid = $1, paid_at = $2, collected_by = $3 WHERE order_id = $4',
-    [paid, paid ? new Date().toISOString() : null, req.user.id, Number(req.params.orderId)]);
-  if (paid) await db.run("UPDATE orders SET status = 'delivered' WHERE id = $1", [Number(req.params.orderId)]);
+    [paid ? 1 : 0, paid ? new Date().toISOString() : null, collectedBy, orderId]);
+  if (paid) await db.run("UPDATE orders SET status = 'delivered' WHERE id = $1", [orderId]);
+}
+async function cancelOrder(orderId) {
+  await db.run("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [orderId]);
+}
+
+app.get('/api/aggregate', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => res.json(await aggregateData())));
+app.post('/api/payments/:orderId/paid', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
+  await setPaid(Number(req.params.orderId), !!req.body.paid, req.user.id);
+  res.json({ ok: true });
+}));
+app.post('/api/orders/:orderId/cancel', auth, requireRole('office_boy', 'admin'), wrap(async (req, res) => {
+  await cancelOrder(Number(req.params.orderId));
   res.json({ ok: true });
 }));
 
-// ---------- Admin: settings, menu, users ----------
+// ---------- Office-boy no-login endpoints (key-authed) ----------
+app.post('/api/boy/check', boyAuth, (req, res) => res.json({ ok: true }));
+app.get('/api/boy/aggregate', boyAuth, wrap(async (req, res) => res.json(await aggregateData())));
+app.post('/api/boy/payments/:orderId/paid', boyAuth, wrap(async (req, res) => {
+  await setPaid(Number(req.params.orderId), !!req.body.paid, null);
+  res.json({ ok: true });
+}));
+app.post('/api/boy/orders/:orderId/cancel', boyAuth, wrap(async (req, res) => {
+  await cancelOrder(Number(req.params.orderId));
+  res.json({ ok: true });
+}));
+
+// ---------- Admin: settings, menu, users, boy access ----------
 app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
   res.json({
     cutoff_time: db.getSetting('cutoff_time'),
@@ -249,6 +313,9 @@ app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
     currency: db.getSetting('currency'),
     allow_custom_items: db.getSetting('allow_custom_items') === '1',
     ordering_open: db.getSetting('ordering_open') === '1',
+    allowed_domains: db.getSetting('allowed_domains') || '',
+    boy_access_key: db.getSetting('boy_access_key') || '',
+    boy_pin_set: !!db.getSetting('boy_pin_hash'),
   });
 });
 app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -262,7 +329,26 @@ app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
   if (b.currency) await db.setSetting('currency', String(b.currency).slice(0, 8));
   if (b.allow_custom_items !== undefined) await db.setSetting('allow_custom_items', b.allow_custom_items ? '1' : '0');
   if (b.ordering_open !== undefined) await db.setSetting('ordering_open', b.ordering_open ? '1' : '0');
+  if (b.allowed_domains !== undefined) {
+    const cleaned = String(b.allowed_domains).split(',')
+      .map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean).join(',');
+    await db.setSetting('allowed_domains', cleaned);
+  }
   res.json({ ok: true });
+}));
+
+// Office-boy access management
+app.post('/api/admin/boy-key', auth, requireRole('admin'), wrap(async (req, res) => {
+  const key = crypto.randomBytes(24).toString('hex');
+  await db.setSetting('boy_access_key', key);
+  res.json({ ok: true, boy_access_key: key });
+}));
+app.put('/api/admin/boy-pin', auth, requireRole('admin'), wrap(async (req, res) => {
+  const pin = String(req.body.pin || '').trim();
+  if (!pin) { await db.setSetting('boy_pin_hash', ''); return res.json({ ok: true, boy_pin_set: false }); }
+  if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'PIN must be 4-8 digits' });
+  await db.setSetting('boy_pin_hash', bcrypt.hashSync(pin, 10));
+  res.json({ ok: true, boy_pin_set: true });
 }));
 
 app.post('/api/menu', auth, requireRole('admin'), wrap(async (req, res) => {
