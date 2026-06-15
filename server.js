@@ -126,11 +126,14 @@ app.post('/api/auth/request-otp', otpRequestLimiter, wrap(async (req, res) => {
     const expiresAt = Date.now() + 5 * 60 * 1000;
     await db.run('UPDATE otps SET consumed = 1 WHERE email = $1 AND consumed = 0', [email]);
     await db.run('INSERT INTO otps(email, code_hash, expires_at) VALUES ($1, $2, $3)', [email, codeHash, expiresAt]);
-    try { await mailer.sendOtp(email, code); } catch (e) { console.error('Mail error:', e.message); }
+    let sent = false, mailErr = null;
+    try { sent = await mailer.sendOtp(email, code); } catch (e) { mailErr = e.message; console.error('Mail error:', e.message); }
+    console.log(`[OTP] email=${email} eligible=true existing=${isExisting} transport=${process.env.MAIL_TRANSPORT || 'console'} delivered=${sent}${mailErr ? ' error=' + mailErr : ''}`);
     if (mailer.devMode) return res.json({ ok: true, devCode: code, newUser: !isExisting });
     return res.json({ ok: true, newUser: !isExisting });
   }
   // Unknown email and not eligible to onboard. Do not reveal which case it is.
+  console.log(`[OTP] email=${email} eligible=false (not registered and domain not whitelisted) allowed_domains=${db.getSetting('allowed_domains') || '(none)'}`);
   return res.json({ ok: true });
 }));
 
@@ -756,7 +759,9 @@ async function start() {
   setInterval(() => sweepOutings().catch((e) => console.error('Outing sweep failed:', e.message)), 30 * 60 * 1000).unref();
   app.listen(PORT, () => {
     console.log(`Lunch order app running on http://localhost:${PORT}`);
-    console.log(`DB: PostgreSQL | Mail transport: ${process.env.MAIL_TRANSPORT || 'console'} | Admin: ${process.env.ADMIN_EMAIL || 'admin@office.local'}`);
+    const graphReady = !!(process.env.GRAPH_TENANT_ID && process.env.GRAPH_CLIENT_ID && process.env.GRAPH_CLIENT_SECRET && process.env.GRAPH_SENDER);
+    console.log(`DB: PostgreSQL | Mail transport: ${process.env.MAIL_TRANSPORT || 'console'} | Graph configured: ${graphReady} | Sender: ${process.env.GRAPH_SENDER || '(unset)'}`);
+    console.log(`allowed_domains=${db.getSetting('allowed_domains') || '(none)'}`);
   });
 }
 if (require.main === module) start().catch((e) => { console.error('Startup failed:', e); process.exit(1); });
