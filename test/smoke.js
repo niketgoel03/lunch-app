@@ -124,6 +124,21 @@ const findP = (d, email) => d.perPerson.find(p => p.email === email);
   ok(rec && rec.duration_min !== null, 'admin audit shows completed outing with duration + name');
   ok((await call(admin, 'PUT', '/api/admin/outings/' + rec.id, { penalty_waived: true })).status === 200, 'admin can waive/override penalty');
 
+  console.log('Web push + notification center');
+  ok((await call(admin, 'GET', '/api/push/vapid')).data.publicKey.length > 0, 'VAPID public key exposed');
+  const subA = { endpoint: 'https://push.example.com/staff2', keys: { p256dh: 'BPp256dhKey', auth: 'authKey' } };
+  ok((await call(staff2, 'POST', '/api/push/subscribe', { subscription: subA })).status === 200, 'staff can subscribe to push');
+  const subB = { endpoint: 'https://push.example.com/rahul', keys: { p256dh: 'BPp256dhKey2', auth: 'authKey2' } };
+  ok((await call(null, 'POST', '/api/boy/push/subscribe', { user_id: rahulU.id, subscription: subB }, H(key2))).status === 200, 'office boy subscribes via link');
+  const notif = await call(admin, 'POST', '/api/admin/notify', { title: 'Test broadcast', body: 'hello', target: 'staff' });
+  ok(notif.status === 200 && notif.data.recipients > 0, 'admin broadcast to staff');
+  ok((await call(admin, 'GET', '/api/admin/notifications')).data.some((n) => n.title === 'Test broadcast' && n.delivered >= 1), 'broadcast logged + delivered');
+  await call(admin, 'POST', '/api/users', { name: 'Staff Three', email: 'staff3@office.local', role: 'staff' });
+  const s3 = await loginAs('staff3@office.local');
+  await call(s3, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] });
+  ok((await call(admin, 'GET', '/api/admin/notifications')).data.some((n) => n.category === 'order'), 'new order generated an office-boy notification');
+  ok(Array.isArray((await call(rahul, 'GET', '/api/notifications/mine')).data), 'user can fetch own notifications');
+
   console.log('Cutoff still enforced');
   await call(admin, 'PUT', '/api/settings', { cutoff_time: '00:00' });
   ok((await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] })).status === 403, 'order rejected after cutoff (403)');

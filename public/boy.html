@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#10b981">
+<link rel="apple-touch-icon" href="/icon.svg">
 <title>Lunch Collection — Office Boy</title>
 <style>
   :root{
@@ -100,10 +103,10 @@ function renderAttend(){
     if(b.current){
       const since=new Date(b.current.out_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       return `<div class="task" data-uid="${b.id}"><div class="th"><div><div class="tt">${esc(b.name)}</div><div class="meta2">Out since ${since}${b.current.purpose?' · '+esc(b.current.purpose):''}</div></div><span class="pill bad">🔴 Out</span></div>
-        <div style="margin-top:10px"><button class="btn block in-btn">✓ Back in Office</button></div></div>`;
+        <div class="row" style="margin-top:10px"><button class="btn in-btn" style="flex:1">✓ Back in Office</button><button class="btn ghost bell-btn" title="Enable alerts">🔔</button></div></div>`;
     }
     return `<div class="task" data-uid="${b.id}"><div class="th"><div class="tt">${esc(b.name)}</div><span class="pill ok">In office</span></div>
-      <div style="margin-top:10px"><input class="purpose" placeholder="Purpose (optional) — shopping, bank…"><div style="margin-top:8px"><button class="btn block out-btn">🚶 Going Out</button></div></div></div>`;
+      <div style="margin-top:10px"><input class="purpose" placeholder="Purpose (optional) — shopping, bank…"><div class="row" style="margin-top:8px"><button class="btn out-btn" style="flex:1">🚶 Going Out</button><button class="btn ghost bell-btn" title="Enable alerts">🔔</button></div></div></div>`;
   }).join('');
   const hist=a.history.map(h=>`<div class="line" style="grid-template-columns:1fr 1fr 70px"><span class="nm">${esc(h.name)}</span><span class="muted">${new Date(h.out_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${h.back_at?' → '+new Date(h.back_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):' → —'}</span><span>${h.status==='out'?'<span class="pill bad">out</span>':h.status==='in'?'<span class="pill ok">'+(h.duration_min!=null?h.duration_min+'m':'in')+'</span>':'<span class="pill due">incomplete</span>'}</span></div>`).join('');
   $('#body').innerHTML=`
@@ -115,6 +118,22 @@ function renderAttend(){
   $('#rf2').onclick=load;
   $$('.out-btn').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-uid]');try{await boyApi('POST','/api/boy/outing/out',{user_id:Number(c.dataset.uid),purpose:c.querySelector('.purpose').value});load();}catch(e){$('#amsg').innerHTML=msg(e.message,'err');}});
   $$('.in-btn').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-uid]');try{await boyApi('POST','/api/boy/outing/in',{user_id:Number(c.dataset.uid)});load();}catch(e){$('#amsg').innerHTML=msg(e.message,'err');}});
+  $$('.bell-btn').forEach(b=>b.onclick=()=>{const c=b.closest('[data-uid]');enableBoyPush(Number(c.dataset.uid));});
+}
+function urlB64ToUint8Array(b64){const pad='='.repeat((4-b64.length%4)%4);const s=(b64+pad).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));}
+async function enableBoyPush(userId){
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){alert('Notifications not supported in this browser.');return;}
+    const reg=await navigator.serviceWorker.register('/sw.js');
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted')return;
+    const r=await fetch('/api/push/vapid');const {publicKey}=await r.json();
+    if(!publicKey){alert('Push not configured on the server yet.');return;}
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8Array(publicKey)});
+    await boyApi('POST','/api/boy/push/subscribe',{user_id:userId,subscription:sub});
+    alert('Alerts enabled on this device.');
+  }catch(e){alert('Could not enable alerts: '+e.message);}
 }
 function renderCollect(){
   const d=DATA;

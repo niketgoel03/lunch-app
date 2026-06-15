@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#4f46e5">
+<link rel="apple-touch-icon" href="/icon.svg">
 <title>Office Lunch Orders</title>
 <style>
   :root{
@@ -184,6 +187,7 @@ function renderShell(){
          <div class="userchip">
            <div class="meta"><b>${esc(ME.name||ME.email)}</b><span>${esc(ME.role)}</span></div>
            <div class="avatar">${initials(ME.name||ME.email)}</div>
+           <button class="btn ghost sm" id="bell" title="Enable notifications">🔔</button>
            <button class="btn ghost sm" id="logout">Logout</button>
          </div>
        </header>
@@ -191,6 +195,8 @@ function renderShell(){
      </div>
    </div>`;
   $('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});ME=null;renderLogin();};
+  $('#bell').onclick=()=>enablePush();
+  refreshBell();
   $('#hb').onclick=()=>{$('#sb').classList.toggle('open');$('#scrim').classList.toggle('show');};
   $('#scrim').onclick=()=>{$('#sb').classList.remove('open');$('#scrim').classList.remove('show');};
   $$('#nav button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;$('#sb').classList.remove('open');$('#scrim').classList.remove('show');route();});
@@ -331,7 +337,7 @@ window.collectApi=(method,url,body)=>api(url,{method,body:JSON.stringify(body)})
 /* ---------- Admin ---------- */
 async function viewAdmin(){
   const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  const [s,menu,users,cats,tasks,outings]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/admin/outings')]);
+  const [s,menu,users,cats,tasks,outings,notifs]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/admin/outings'),api('/api/admin/notifications')]);
   const link=location.origin+'/boy.html?key='+s.boy_access_key;
   const employees=users.filter(u=>u.active);
   v.innerHTML=`
@@ -362,6 +368,18 @@ async function viewAdmin(){
       <p class="sub" style="margin-bottom:12px">Out/in history. Records left open past the day are auto-flagged <b>Incomplete</b> with a ${money(outings.penalty_default)} penalty — waive or adjust below.</p>
       <div id="outList"></div></div>
 
+    <div class="card"><div class="card-head"><h2>Notification center</h2></div>
+      <p class="sub" style="margin-bottom:12px">Send a push notification instantly to everyone or a group. Users must enable notifications (🔔) on their device first.</p>
+      <div id="notifyMsg"></div>
+      <label>Title</label><input id="nTitle" maxlength="120" placeholder="e.g. Office closes early today">
+      <label>Message</label><input id="nBody" maxlength="300" placeholder="Optional details…">
+      <label>Send to</label>
+      <select id="nTarget"><option value="all">Everyone</option><option value="office_boy">Office boys</option><option value="staff">Staff</option><option value="admin">Admins</option></select>
+      <div style="margin-top:12px"><button class="btn" id="sendNotif">Send notification</button></div>
+      <hr>
+      <h2 style="font-size:14px;margin:0 0 8px">Recent history</h2>
+      <div id="notifList"></div></div>
+
     <div class="card"><div class="card-head"><h2>Tasks — assign</h2></div><div id="taskMsg"></div>
       <div class="grid2">
         <div><label>Title</label><input id="ttitle" placeholder="e.g. Deposit cheque at bank"></div>
@@ -388,6 +406,11 @@ async function viewAdmin(){
   $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),penalty_amount:Number($('#penalty').value)||0,allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
   // outings audit
   renderOutings(outings.outings);
+  // notification center
+  $('#sendNotif').onclick=async()=>{const title=$('#nTitle').value.trim();if(!title){$('#notifyMsg').innerHTML=msg('Title required','err');return;}
+    try{const r=await api('/api/admin/notify',{method:'POST',body:JSON.stringify({title,body:$('#nBody').value,target:$('#nTarget').value})});$('#notifyMsg').innerHTML=msg('Sent to '+r.recipients+' recipient(s).','ok');viewAdmin();}catch(e){$('#notifyMsg').innerHTML=msg(e.message,'err');}};
+  renderNotifs(notifs);
+  function renderNotifs(list){$('#notifList').innerHTML=list.length?list.slice(0,30).map(n=>`<div class="line" style="grid-template-columns:1fr auto"><span><span class="nm">${esc(n.title)}</span> <span class="muted small">→ ${esc(n.name||n.email||'—')} · ${new Date(n.created_at).toLocaleString()}</span></span><span class="pill ${n.delivered?'ok':'grey'}">${n.delivered?'sent':(esc(n.error||'queued'))}</span></div>`).join(''):'<p class="empty">No notifications sent yet.</p>';}
   // boy access
   $('#copyLink').onclick=()=>{navigator.clipboard?.writeText($('#boylink').value);$('#boyMsg').innerHTML=msg('Link copied.','ok');};
   $('#rotate').onclick=async()=>{if(!confirm('Rotate the link? The old link stops working.'))return;await api('/api/admin/boy-key',{method:'POST'});viewAdmin();};
@@ -451,8 +474,28 @@ function adminTaskRow(t,emps,cats){
     </div></div>`;
 }
 
+/* ---------- Web push ---------- */
+function urlB64ToUint8Array(b64){const pad='='.repeat((4-b64.length%4)%4);const s=(b64+pad).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));}
+function refreshBell(){const b=$('#bell');if(!b)return;b.textContent=(window.Notification&&Notification.permission==='granted')?'🔔':'🔕';}
+async function enablePush(silent){
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){if(!silent)alert('Notifications are not supported in this browser.');return;}
+    const reg=await navigator.serviceWorker.register('/sw.js');
+    let perm=Notification.permission;
+    if(perm!=='granted'){ if(silent)return; perm=await Notification.requestPermission(); }
+    if(perm!=='granted'){refreshBell();return;}
+    const {publicKey}=await api('/api/push/vapid');
+    if(!publicKey){if(!silent)alert('Push is not configured on the server yet.');return;}
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8Array(publicKey)});
+    await api('/api/push/subscribe',{method:'POST',body:JSON.stringify({subscription:sub})});
+    refreshBell();
+    if(!silent)alert('Notifications enabled on this device.');
+  }catch(e){ if(!silent)alert('Could not enable notifications: '+e.message); }
+}
+
 /* ---------- Boot ---------- */
-async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();}catch{renderLogin();}}
+async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();enablePush(true);}catch{renderLogin();}}
 boot();
 </script>
 </body>

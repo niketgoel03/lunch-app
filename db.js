@@ -138,6 +138,29 @@ CREATE TABLE IF NOT EXISTS task_category_visibility (
   PRIMARY KEY (category_id, user_id)
 );
 
+-- ===== Web push notifications =====
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint   TEXT UNIQUE NOT NULL,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  url        TEXT NOT NULL DEFAULT '/',
+  category   TEXT NOT NULL DEFAULT 'general',
+  delivered  INTEGER NOT NULL DEFAULT 0,   -- # of subscriptions the push reached
+  error      TEXT,
+  created_by INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ===== Office-boy out/in (attendance & movement) tracking =====
 CREATE TABLE IF NOT EXISTS outings (
   id             SERIAL PRIMARY KEY,
@@ -149,6 +172,7 @@ CREATE TABLE IF NOT EXISTS outings (
   status         TEXT NOT NULL DEFAULT 'out',         -- out | in | incomplete
   penalty_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
   penalty_waived INTEGER NOT NULL DEFAULT 0,
+  warned_long    INTEGER NOT NULL DEFAULT 0,          -- 1 once an "out too long" alert was sent
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `;
@@ -168,6 +192,17 @@ async function init() {
   await seed('boy_access_key', crypto.randomBytes(24).toString('hex')); // secret for office-boy no-login link
   await seed('boy_pin_hash', '');                                      // optional bcrypt PIN; empty = link only
   await seed('penalty_amount', process.env.PENALTY_AMOUNT || '300');   // penalty for not checking back in (per day)
+  await seed('out_max_minutes', process.env.OUT_MAX_MINUTES || '120'); // alert when office boy is out longer than this
+
+  // VAPID keys for web push (generated once, then persisted).
+  if (!(await get("SELECT 1 FROM settings WHERE key = 'vapid_public'"))) {
+    try {
+      const webpush = require('web-push');
+      const keys = webpush.generateVAPIDKeys();
+      await run('INSERT INTO settings(key, value) VALUES ($1, $2) ON CONFLICT(key) DO NOTHING', ['vapid_public', keys.publicKey]);
+      await run('INSERT INTO settings(key, value) VALUES ($1, $2) ON CONFLICT(key) DO NOTHING', ['vapid_private', keys.privateKey]);
+    } catch (e) { console.error('VAPID key generation skipped:', e.message); }
+  }
 
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@office.local').toLowerCase();
   const adminName = process.env.ADMIN_NAME || 'Office Admin';

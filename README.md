@@ -82,6 +82,14 @@ POST /api/boy/outing/in    {user_id}           (mark Back in Office)
 GET  /api/admin/outings[?from&to]              (admin: full audit + total penalties)
 PUT  /api/admin/outings/:id {penalty_waived, penalty_amount, purpose}  (admin: waive/override)
 
+# Web push notifications (PWA + VAPID, self-hosted)
+GET  /api/push/vapid                            (public VAPID key for the browser)
+POST /api/push/subscribe        {subscription}  (logged-in user)
+POST /api/boy/push/subscribe    {user_id, subscription}  (office boy, no login)
+GET  /api/notifications/mine                     (my recent notifications)
+POST /api/admin/notify    {title, body, url, target}     (admin broadcast: all|role|user_ids[])
+GET  /api/admin/notifications                    (admin: history + delivery status)
+
 # Office boy WITHOUT login (authenticated by secret key + optional PIN, sent as
 # x-boy-key / x-boy-pin headers or ?key=&pin= query):
 POST /api/boy/check
@@ -115,6 +123,12 @@ Admin creates **task categories** (Shopping, Courier, Bank Work, Office Supplies
 ### Office-boy out/in tracking (attendance)
 
 From the no-login link the office boy marks **Going Out** (with optional purpose) and **Back in Office**. Every outing is logged with date, out time, back time, duration and name. If a return isn't marked before the day ends, the record is auto-flagged **Incomplete** and a configurable penalty (default ₹300, set in Admin → Daily rules) is applied. The admin sees the full **audit trail** with total penalties and can **waive or override** any penalty. The daily sweep runs on startup and every 30 minutes.
+
+### Web push notifications (PWA)
+
+Self-hosted Web Push via Service Worker + VAPID — no Firebase, no third-party service. Keys are auto-generated on first run and stored in the DB. Users tap 🔔 to enable notifications on a device (the office boy enables per-person from the attendance card). Notifications fire on: new lunch order (→ office boy), task assigned (→ assignee), order cancelled & payment received (→ employee), plus attendance reminders ("out too long" after `OUT_MAX_MINUTES`, and "missed return"). Admins also get a **Notification Center** to broadcast a custom message to everyone or a group, and every notification is stored with delivery status in the **history log**.
+
+> Web Push and Service Workers require **HTTPS** (already in place via Nginx + Let's Encrypt). `localhost` also works for development.
 
 ## 5. Security (baked in from day 1)
 

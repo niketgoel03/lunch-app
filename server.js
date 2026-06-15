@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 
 const db = require('./db');
 const mailer = require('./mailer');
+const push = require('./push');
 
 const app = express();
 app.set('trust proxy', 1); // behind Nginx/Cloudflare: trust X-Forwarded-* so Secure cookies work
@@ -168,6 +169,31 @@ app.get('/api/me', auth, (req, res) => {
   res.json({ user: { email: req.user.email, name: req.user.name, role: req.user.role }, state: orderingState() });
 });
 
+// ---------- Web push ----------
+app.get('/api/push/vapid', (req, res) => res.json({ publicKey: push.publicKey() }));
+
+async function saveSubscription(userId, sub) {
+  if (!sub || !sub.endpoint || !sub.keys) throw new Error('Invalid subscription');
+  await db.run(
+    `INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+    [userId, sub.endpoint, sub.keys.p256dh, sub.keys.auth]);
+}
+app.post('/api/push/subscribe', auth, wrap(async (req, res) => {
+  await saveSubscription(req.user.id, req.body.subscription);
+  res.json({ ok: true });
+}));
+app.post('/api/boy/push/subscribe', boyAuth, wrap(async (req, res) => {
+  const userId = Number(req.body.user_id);
+  const u = await db.get("SELECT id FROM users WHERE id = $1 AND role = 'office_boy' AND active = 1", [userId]);
+  if (!u) return res.status(400).json({ error: 'Select a valid office boy' });
+  await saveSubscription(userId, req.body.subscription);
+  res.json({ ok: true });
+}));
+app.get('/api/notifications/mine', auth, wrap(async (req, res) => {
+  res.json(await db.all('SELECT id, title, body, url, category, created_at FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 30', [req.user.id]));
+}));
+
 // ---------- Menu ----------
 app.get('/api/menu', auth, wrap(async (req, res) => {
   res.json(await db.all('SELECT id, name, price, available FROM menu_items ORDER BY name'));
@@ -217,15 +243,15 @@ const placeOrUpdate = wrap(async (req, res) => {
   catch (e) { return res.status(400).json({ error: e.message }); }
   const note = String(req.body.note || '').slice(0, 300);
 
-  const orderId = await db.tx(async (c) => {
+  const result = await db.tx(async (c) => {
     const existing = await c.query('SELECT id FROM orders WHERE user_id = $1 AND order_date = $2', [req.user.id, st.today]);
-    let id;
+    let id, isNew = false;
     if (existing.rows[0]) {
       id = existing.rows[0].id;
       await c.query("UPDATE orders SET status = 'placed', note = $1, updated_at = now() WHERE id = $2", [note, id]);
     } else {
       const r = await c.query('INSERT INTO orders(user_id, order_date, note) VALUES ($1, $2, $3) RETURNING id', [req.user.id, st.today, note]);
-      id = r.rows[0].id;
+      id = r.rows[0].id; isNew = true;
     }
     await c.query('DELETE FROM order_items WHERE order_id = $1', [id]);
     let total = 0;
@@ -235,10 +261,13 @@ const placeOrUpdate = wrap(async (req, res) => {
       total += it.qty * it.unit_price;
     }
     await c.query('INSERT INTO payments(order_id, amount, paid) VALUES ($1, $2, 0) ON CONFLICT(order_id) DO UPDATE SET amount = EXCLUDED.amount', [id, total]);
-    return id;
+    return { id, isNew };
   });
 
-  res.json({ ok: true, order: await loadOrder(orderId), state: orderingState() });
+  if (result.isNew) {
+    push.sendToRole('office_boy', { title: '🍱 New lunch order', body: `${req.user.name || req.user.email} placed a lunch order`, url: '/', category: 'order' });
+  }
+  res.json({ ok: true, order: await loadOrder(result.id), state: orderingState() });
 });
 app.post('/api/orders', auth, placeOrUpdate);
 app.put('/api/orders/mine', auth, placeOrUpdate);
@@ -291,16 +320,21 @@ async function orderPaid(orderId) {
 async function setPaid(orderId, paid, collectedBy) {
   await db.run('UPDATE payments SET paid = $1, paid_at = $2, collected_by = $3 WHERE order_id = $4',
     [paid ? 1 : 0, paid ? new Date().toISOString() : null, collectedBy, orderId]);
-  if (paid) await db.run("UPDATE orders SET status = 'delivered' WHERE id = $1", [orderId]);
+  if (paid) {
+    await db.run("UPDATE orders SET status = 'delivered' WHERE id = $1", [orderId]);
+    const o = await db.get('SELECT user_id FROM orders WHERE id = $1', [orderId]);
+    if (o) push.sendToUsers([o.user_id], { title: '💰 Payment received', body: 'Your lunch payment has been recorded.', url: '/', category: 'payment' });
+  }
 }
 async function cancelOrder(orderId) {
   const o = await db.get(
-    'SELECT o.id, o.status, u.email, u.name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1', [orderId]);
+    'SELECT o.id, o.status, o.user_id, u.email, u.name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1', [orderId]);
   if (!o || o.status === 'cancelled') return false;
   await db.run("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [orderId]);
-  // Notify the employee (fire-and-forget; never blocks the response).
+  // Notify the employee by email + push (fire-and-forget; never blocks the response).
   mailer.sendNotice(o.email, 'Your lunch order has been cancelled',
     `Hi ${o.name || ''},\n\nYour lunch order for today has been cancelled. If you did not expect this, please contact the office.\n\n— Office Lunch Orders`);
+  push.sendToUsers([o.user_id], { title: '❌ Order cancelled', body: 'Your lunch order for today was cancelled.', url: '/', category: 'order' });
   return true;
 }
 
@@ -346,11 +380,30 @@ async function currentOuting(userId) {
   return db.get("SELECT * FROM outings WHERE user_id = $1 AND status = 'out' ORDER BY id DESC LIMIT 1", [userId]);
 }
 // Any 'out' record from a previous day = the boy never marked back in -> incomplete + penalty.
+// Also pushes "missed return" alerts and "out too long" reminders.
 async function sweepOutings() {
   const penalty = Math.max(0, Number(db.getSetting('penalty_amount') || 0));
+  const today = todayStr();
+  const currency = db.getSetting('currency');
+
+  const stale = await db.all("SELECT id, user_id FROM outings WHERE status = 'out' AND out_date < $1", [today]);
   await db.run(
     "UPDATE outings SET status = 'incomplete', penalty_amount = CASE WHEN penalty_waived = 1 THEN 0 ELSE $1 END WHERE status = 'out' AND out_date < $2",
-    [penalty, todayStr()]);
+    [penalty, today]);
+  for (const s of stale) {
+    push.sendToUsers([s.user_id], { title: '⚠️ Missed return', body: `You didn't mark Back in Office. A penalty of ${currency} ${penalty} may apply.`, url: '/', category: 'attendance' });
+  }
+
+  const maxMin = Math.max(0, Number(db.getSetting('out_max_minutes') || 0));
+  if (maxMin > 0) {
+    const longs = await db.all("SELECT id, user_id, out_at FROM outings WHERE status = 'out' AND warned_long = 0 AND out_date = $1", [today]);
+    for (const l of longs) {
+      if ((Date.now() - new Date(l.out_at).getTime()) / 60000 >= maxMin) {
+        await db.run('UPDATE outings SET warned_long = 1 WHERE id = $1', [l.id]);
+        push.sendToUsers([l.user_id], { title: '⏳ Still out of office', body: `You've been out over ${maxMin} min. Please mark Back in Office when you return.`, url: '/', category: 'attendance' });
+      }
+    }
+  }
 }
 
 app.get('/api/boy/outing/state', boyAuth, wrap(async (req, res) => {
@@ -463,6 +516,28 @@ app.put('/api/admin/outings/:id', auth, requireRole('admin'), wrap(async (req, r
   const amount = req.body.penalty_amount !== undefined ? Math.max(0, Number(req.body.penalty_amount) || 0) : o.penalty_amount;
   await db.run('UPDATE outings SET purpose = $1, penalty_waived = $2, penalty_amount = $3 WHERE id = $4', [purpose, waived, amount, id]);
   res.json({ ok: true });
+}));
+
+// Admin notification center + history
+app.post('/api/admin/notify', auth, requireRole('admin'), wrap(async (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 120);
+  if (!title) return res.status(400).json({ error: 'Title required' });
+  const body = String(req.body.body || '').slice(0, 300);
+  const url = String(req.body.url || '/').slice(0, 200);
+  const target = req.body.target;
+  let userIds = [];
+  if (Array.isArray(target)) userIds = target.map(Number).filter(Boolean);
+  else if (target === 'all') userIds = (await db.all('SELECT id FROM users WHERE active = 1')).map((u) => u.id);
+  else if (['staff', 'office_boy', 'admin'].includes(target)) userIds = (await db.all('SELECT id FROM users WHERE active = 1 AND role = $1', [target])).map((u) => u.id);
+  else return res.status(400).json({ error: 'Invalid target' });
+  await push.sendToUsers(userIds, { title, body, url, category: 'admin' }, req.user.id);
+  res.json({ ok: true, recipients: userIds.length });
+}));
+app.get('/api/admin/notifications', auth, requireRole('admin'), wrap(async (req, res) => {
+  res.json(await db.all(`
+    SELECT n.id, n.title, n.body, n.category, n.delivered, n.error, n.created_at, u.name, u.email
+    FROM notifications n LEFT JOIN users u ON u.id = n.user_id
+    ORDER BY n.id DESC LIMIT 100`));
 }));
 
 app.post('/api/menu', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -584,6 +659,7 @@ app.post('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) =
   const r = await db.get(
     'INSERT INTO tasks(category_id, title, details, assignee_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
     [categoryId, title, details, assigneeId, req.user.id]);
+  if (assigneeId) push.sendToUsers([assigneeId], { title: '🗂️ New task assigned', body: title, url: '/', category: 'task' });
   res.json({ ok: true, id: r.id });
 }));
 app.put('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -601,6 +677,7 @@ app.put('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res
   await db.run(
     'UPDATE tasks SET title=$1, details=$2, category_id=$3, assignee_id=$4, status=$5, remarks=$6, completed_at=$7, updated_at=now() WHERE id=$8',
     [title, details, categoryId, assigneeId, status, remarks, completedAt, id]);
+  if (assigneeId && assigneeId !== t.assignee_id) push.sendToUsers([assigneeId], { title: '🗂️ New task assigned', body: title, url: '/', category: 'task' });
   res.json({ ok: true });
 }));
 app.delete('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -651,6 +728,7 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
 
 async function start() {
   await db.init();
+  push.configure();
   await sweepOutings().catch((e) => console.error('Outing sweep failed:', e.message));
   // Re-run periodically so previous-day open outings get flagged incomplete + penalised.
   setInterval(() => sweepOutings().catch((e) => console.error('Outing sweep failed:', e.message)), 30 * 60 * 1000).unref();
