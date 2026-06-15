@@ -94,13 +94,29 @@ async function load(){
 }
 function render(){
   $('#root').innerHTML=`
-    <div class="topbar"><div class="in"><span class="mark">${ICON.cart}</span> Lunch Collection</div></div>
+    <div class="topbar"><div class="in"><span class="mark">${ICON.cart}</span> <span style="flex:1">Lunch Collection</span><button class="btn sm" id="install" style="display:none">⬇️ Install</button></div></div>
     <div class="wrap">
       <div class="tabs"><button data-t="collect" class="${TAB==='collect'?'active':''}">Collection</button><button data-t="tasks" class="${TAB==='tasks'?'active':''}">My Tasks${TASKS&&TASKS.length?' ('+TASKS.filter(t=>t.status!=='completed'&&t.status!=='cancelled').length+')':''}</button><button data-t="attend" class="${TAB==='attend'?'active':''}">Attendance${ATT&&ATT.boys.some(b=>b.current)?' 🔴':''}</button></div>
       <div id="body"></div>
     </div>`;
   $$('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.t;render();});
+  const ib=$('#install'); if(ib){ib.onclick=doInstall; if(deferredPrompt)ib.style.display='';}
+  maybeIOSBanner();
   TAB==='collect'?renderCollect():TAB==='tasks'?renderTasks():renderAttend();
+}
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;const b=$('#install');if(b)b.style.display='';});
+window.addEventListener('appinstalled',()=>{deferredPrompt=null;const b=$('#install');if(b)b.style.display='none';});
+const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+const isiOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream;
+async function doInstall(){if(!deferredPrompt)return;deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;const b=$('#install');if(b)b.style.display='none';}
+function maybeIOSBanner(){
+  try{ if(!isiOS()||isStandalone()||localStorage.getItem('iosInstallDismissed')||$('#iosBanner'))return; }catch{ if(!isiOS()||isStandalone())return; }
+  const el=document.createElement('div');el.id='iosBanner';
+  el.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:60;background:#0f1729;color:#fff;border-radius:14px;padding:13px 14px;box-shadow:0 12px 34px rgba(0,0,0,.35);font-size:13.5px;display:flex;gap:10px;align-items:center';
+  el.innerHTML='<span style="font-size:20px">📲</span><span style="flex:1">Install: tap <b>Share</b> &#x2191; then <b>Add to Home Screen</b>.</span><button id="iosX" style="background:#23304f;color:#fff;border:0;border-radius:9px;padding:7px 11px;font-weight:600;cursor:pointer">Got it</button>';
+  document.body.appendChild(el);
+  $('#iosX').onclick=()=>{try{localStorage.setItem('iosInstallDismissed','1');}catch{} el.remove();};
 }
 function renderAttend(){
   const a=ATT;
