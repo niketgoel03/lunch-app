@@ -56,7 +56,7 @@ const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ICON={cart:'🍱',check:'✓'};
 const KEY=new URLSearchParams(location.search).get('key')||'';
-let PIN='',CUR='',TAB='collect',DATA=null,TASKS=null;
+let PIN='',CUR='',TAB='collect',DATA=null,TASKS=null,ATT=null;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const msg=(t,k='ok')=>`<div class="msg ${k}">${t}</div>`;
 const money=n=>CUR+' '+Number(n||0).toFixed(2);
@@ -77,7 +77,7 @@ function gate(note=''){
 }
 async function load(){
   try{
-    [DATA,TASKS]=await Promise.all([boyApi('GET','/api/boy/aggregate'),boyApi('GET','/api/boy/tasks')]);
+    [DATA,TASKS,ATT]=await Promise.all([boyApi('GET','/api/boy/aggregate'),boyApi('GET','/api/boy/tasks'),boyApi('GET','/api/boy/outing/state')]);
     CUR=DATA.state.currency;render();
   }catch(e){
     if(e.pinRequired)return gate();
@@ -88,11 +88,33 @@ function render(){
   $('#root').innerHTML=`
     <div class="topbar"><div class="in"><span class="mark">${ICON.cart}</span> Lunch Collection</div></div>
     <div class="wrap">
-      <div class="tabs"><button data-t="collect" class="${TAB==='collect'?'active':''}">Collection</button><button data-t="tasks" class="${TAB==='tasks'?'active':''}">My Tasks${TASKS&&TASKS.length?' ('+TASKS.filter(t=>t.status!=='completed'&&t.status!=='cancelled').length+')':''}</button></div>
+      <div class="tabs"><button data-t="collect" class="${TAB==='collect'?'active':''}">Collection</button><button data-t="tasks" class="${TAB==='tasks'?'active':''}">My Tasks${TASKS&&TASKS.length?' ('+TASKS.filter(t=>t.status!=='completed'&&t.status!=='cancelled').length+')':''}</button><button data-t="attend" class="${TAB==='attend'?'active':''}">Attendance${ATT&&ATT.boys.some(b=>b.current)?' 🔴':''}</button></div>
       <div id="body"></div>
     </div>`;
   $$('.tabs button').forEach(b=>b.onclick=()=>{TAB=b.dataset.t;render();});
-  TAB==='collect'?renderCollect():renderTasks();
+  TAB==='collect'?renderCollect():TAB==='tasks'?renderTasks():renderAttend();
+}
+function renderAttend(){
+  const a=ATT;
+  const cards=a.boys.map(b=>{
+    if(b.current){
+      const since=new Date(b.current.out_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      return `<div class="task" data-uid="${b.id}"><div class="th"><div><div class="tt">${esc(b.name)}</div><div class="meta2">Out since ${since}${b.current.purpose?' · '+esc(b.current.purpose):''}</div></div><span class="pill bad">🔴 Out</span></div>
+        <div style="margin-top:10px"><button class="btn block in-btn">✓ Back in Office</button></div></div>`;
+    }
+    return `<div class="task" data-uid="${b.id}"><div class="th"><div class="tt">${esc(b.name)}</div><span class="pill ok">In office</span></div>
+      <div style="margin-top:10px"><input class="purpose" placeholder="Purpose (optional) — shopping, bank…"><div style="margin-top:8px"><button class="btn block out-btn">🚶 Going Out</button></div></div></div>`;
+  }).join('');
+  const hist=a.history.map(h=>`<div class="line" style="grid-template-columns:1fr 1fr 70px"><span class="nm">${esc(h.name)}</span><span class="muted">${new Date(h.out_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${h.back_at?' → '+new Date(h.back_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):' → —'}</span><span>${h.status==='out'?'<span class="pill bad">out</span>':h.status==='in'?'<span class="pill ok">'+(h.duration_min!=null?h.duration_min+'m':'in')+'</span>':'<span class="pill due">incomplete</span>'}</span></div>`).join('');
+  $('#body').innerHTML=`
+    <div class="card"><div class="card-head"><h2>Out / In</h2><button class="btn ghost sm" id="rf2">↻</button></div>
+      ${a.boys.length?cards:'<p class="empty">No office boy accounts. Ask admin to add one.</p>'}
+      <div id="amsg"></div>
+      <p class="meta2" style="margin-top:10px">Remember to mark <b>Back in Office</b> before end of day, or a penalty of ${CUR} ${a.penalty} applies.</p></div>
+    <div class="card"><div class="card-head"><h2>Today's movements</h2></div>${hist||'<p class="empty">No outings today.</p>'}</div>`;
+  $('#rf2').onclick=load;
+  $$('.out-btn').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-uid]');try{await boyApi('POST','/api/boy/outing/out',{user_id:Number(c.dataset.uid),purpose:c.querySelector('.purpose').value});load();}catch(e){$('#amsg').innerHTML=msg(e.message,'err');}});
+  $$('.in-btn').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-uid]');try{await boyApi('POST','/api/boy/outing/in',{user_id:Number(c.dataset.uid)});load();}catch(e){$('#amsg').innerHTML=msg(e.message,'err');}});
 }
 function renderCollect(){
   const d=DATA;

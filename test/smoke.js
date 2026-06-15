@@ -109,6 +109,21 @@ const findP = (d, email) => d.perPerson.find(p => p.email === email);
   await call(admin, 'PUT', '/api/admin/task-categories/' + cat.data.id + '/visibility', { user_ids: [staff2U.id] });
   ok((await call(staff2, 'GET', '/api/task-categories/mine')).data.some(c => c.id === cat.data.id), 'category visibility grants employee access');
 
+  console.log('Office boy out/in tracking + audit + penalty');
+  await call(admin, 'PUT', '/api/settings', { penalty_amount: 300 });
+  const st0 = await call(null, 'GET', '/api/boy/outing/state', null, H(key2));
+  const boy = st0.data.boys[0];
+  ok(st0.data.penalty === 300 && !!boy, 'attendance state shows penalty default + office boy');
+  ok((await call(null, 'POST', '/api/boy/outing/out', { user_id: boy.id, purpose: 'Bank work' }, H(key2))).status === 200, 'office boy marked Going Out');
+  ok((await call(null, 'POST', '/api/boy/outing/out', { user_id: boy.id }, H(key2))).status === 409, 'cannot go out twice without returning');
+  ok((await call(null, 'GET', '/api/boy/outing/state', null, H(key2))).data.boys.find(b => b.id === boy.id).current, 'state shows boy currently out');
+  ok((await call(null, 'POST', '/api/boy/outing/in', { user_id: boy.id }, H(key2))).status === 200, 'office boy marked Back in Office');
+  ok(!(await call(null, 'GET', '/api/boy/outing/state', null, H(key2))).data.boys.find(b => b.id === boy.id).current, 'state shows boy back in office');
+  const audit = await call(admin, 'GET', '/api/admin/outings');
+  const rec = audit.data.outings.find(o => o.status === 'in');
+  ok(rec && rec.duration_min !== null, 'admin audit shows completed outing with duration + name');
+  ok((await call(admin, 'PUT', '/api/admin/outings/' + rec.id, { penalty_waived: true })).status === 200, 'admin can waive/override penalty');
+
   console.log('Cutoff still enforced');
   await call(admin, 'PUT', '/api/settings', { cutoff_time: '00:00' });
   ok((await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] })).status === 403, 'order rejected after cutoff (403)');

@@ -333,6 +333,58 @@ app.post('/api/boy/orders/:orderId/cancel', boyAuth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- Office-boy out/in (attendance & movement) ----------
+function todayStr() { return nowInTz(db.getSetting('timezone')).date; }
+function durationMin(outAt, backAt) {
+  if (!outAt || !backAt) return null;
+  return Math.max(0, Math.round((new Date(backAt) - new Date(outAt)) / 60000));
+}
+async function officeBoys() {
+  return db.all("SELECT id, name, email FROM users WHERE role = 'office_boy' AND active = 1 ORDER BY name");
+}
+async function currentOuting(userId) {
+  return db.get("SELECT * FROM outings WHERE user_id = $1 AND status = 'out' ORDER BY id DESC LIMIT 1", [userId]);
+}
+// Any 'out' record from a previous day = the boy never marked back in -> incomplete + penalty.
+async function sweepOutings() {
+  const penalty = Math.max(0, Number(db.getSetting('penalty_amount') || 0));
+  await db.run(
+    "UPDATE outings SET status = 'incomplete', penalty_amount = CASE WHEN penalty_waived = 1 THEN 0 ELSE $1 END WHERE status = 'out' AND out_date < $2",
+    [penalty, todayStr()]);
+}
+
+app.get('/api/boy/outing/state', boyAuth, wrap(async (req, res) => {
+  await sweepOutings();
+  const boys = [];
+  for (const b of await officeBoys()) {
+    const cur = await currentOuting(b.id);
+    boys.push({ id: b.id, name: b.name || b.email, current: cur ? { id: cur.id, out_at: cur.out_at, purpose: cur.purpose } : null });
+  }
+  const today = todayStr();
+  const history = await db.all(
+    "SELECT o.*, u.name FROM outings o JOIN users u ON u.id = o.user_id WHERE o.out_date = $1 AND u.role = 'office_boy' ORDER BY o.id DESC", [today]);
+  res.json({
+    boys, today, penalty: Number(db.getSetting('penalty_amount') || 0),
+    history: history.map((h) => ({ id: h.id, name: h.name, purpose: h.purpose, out_at: h.out_at, back_at: h.back_at, status: h.status, duration_min: durationMin(h.out_at, h.back_at) })),
+  });
+}));
+app.post('/api/boy/outing/out', boyAuth, wrap(async (req, res) => {
+  const userId = Number(req.body.user_id);
+  const u = await db.get("SELECT id FROM users WHERE id = $1 AND role = 'office_boy' AND active = 1", [userId]);
+  if (!u) return res.status(400).json({ error: 'Select a valid office boy' });
+  if (await currentOuting(userId)) return res.status(409).json({ error: 'Already marked out — mark Back in Office first' });
+  const purpose = String(req.body.purpose || '').slice(0, 160);
+  await db.run('INSERT INTO outings(user_id, out_date, purpose) VALUES ($1, $2, $3)', [userId, todayStr(), purpose]);
+  res.json({ ok: true });
+}));
+app.post('/api/boy/outing/in', boyAuth, wrap(async (req, res) => {
+  const userId = Number(req.body.user_id);
+  const cur = await currentOuting(userId);
+  if (!cur) return res.status(409).json({ error: 'No open outing to close' });
+  await db.run("UPDATE outings SET back_at = now(), status = 'in' WHERE id = $1", [cur.id]);
+  res.json({ ok: true });
+}));
+
 // ---------- Admin: settings, menu, users, boy access ----------
 app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
   res.json({
@@ -345,6 +397,7 @@ app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
     allowed_domains: db.getSetting('allowed_domains') || '',
     boy_access_key: db.getSetting('boy_access_key') || '',
     boy_pin_set: !!db.getSetting('boy_pin_hash'),
+    penalty_amount: Number(db.getSetting('penalty_amount') || 0),
   });
 });
 app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -363,6 +416,10 @@ app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
       .map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean).join(',');
     await db.setSetting('allowed_domains', cleaned);
   }
+  if (b.penalty_amount !== undefined) {
+    const amt = Math.max(0, Number(b.penalty_amount) || 0);
+    await db.setSetting('penalty_amount', String(amt));
+  }
   res.json({ ok: true });
 }));
 
@@ -378,6 +435,34 @@ app.put('/api/admin/boy-pin', auth, requireRole('admin'), wrap(async (req, res) 
   if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'PIN must be 4-8 digits' });
   await db.setSetting('boy_pin_hash', bcrypt.hashSync(pin, 10));
   res.json({ ok: true, boy_pin_set: true });
+}));
+
+// Admin: outing audit trail + penalty waive/override
+app.get('/api/admin/outings', auth, requireRole('admin'), wrap(async (req, res) => {
+  await sweepOutings();
+  const cond = [], params = [];
+  if (req.query.from) { params.push(req.query.from); cond.push(`o.out_date >= $${params.length}`); }
+  if (req.query.to) { params.push(req.query.to); cond.push(`o.out_date <= $${params.length}`); }
+  const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+  const rows = await db.all(`SELECT o.*, u.name, u.email FROM outings o JOIN users u ON u.id = o.user_id ${where} ORDER BY o.out_date DESC, o.id DESC`, params);
+  const outings = rows.map((r) => ({
+    id: r.id, name: r.name || r.email, out_date: r.out_date, purpose: r.purpose,
+    out_at: r.out_at, back_at: r.back_at, status: r.status,
+    duration_min: durationMin(r.out_at, r.back_at),
+    penalty_amount: r.penalty_amount, penalty_waived: !!r.penalty_waived,
+    effective_penalty: r.penalty_waived ? 0 : r.penalty_amount,
+  }));
+  res.json({ outings, totalPenalty: outings.reduce((s, r) => s + (r.effective_penalty || 0), 0), penalty_default: Number(db.getSetting('penalty_amount') || 0) });
+}));
+app.put('/api/admin/outings/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const o = await db.get('SELECT * FROM outings WHERE id = $1', [id]);
+  if (!o) return res.status(404).json({ error: 'Not found' });
+  const purpose = req.body.purpose !== undefined ? String(req.body.purpose).slice(0, 160) : o.purpose;
+  const waived = req.body.penalty_waived !== undefined ? (req.body.penalty_waived ? 1 : 0) : o.penalty_waived;
+  const amount = req.body.penalty_amount !== undefined ? Math.max(0, Number(req.body.penalty_amount) || 0) : o.penalty_amount;
+  await db.run('UPDATE outings SET purpose = $1, penalty_waived = $2, penalty_amount = $3 WHERE id = $4', [purpose, waived, amount, id]);
+  res.json({ ok: true });
 }));
 
 app.post('/api/menu', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -566,6 +651,9 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
 
 async function start() {
   await db.init();
+  await sweepOutings().catch((e) => console.error('Outing sweep failed:', e.message));
+  // Re-run periodically so previous-day open outings get flagged incomplete + penalised.
+  setInterval(() => sweepOutings().catch((e) => console.error('Outing sweep failed:', e.message)), 30 * 60 * 1000).unref();
   app.listen(PORT, () => {
     console.log(`Lunch order app running on http://localhost:${PORT}`);
     console.log(`DB: PostgreSQL | Mail transport: ${process.env.MAIL_TRANSPORT || 'console'} | Admin: ${process.env.ADMIN_EMAIL || 'admin@office.local'}`);

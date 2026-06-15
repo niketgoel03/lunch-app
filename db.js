@@ -137,6 +137,20 @@ CREATE TABLE IF NOT EXISTS task_category_visibility (
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (category_id, user_id)
 );
+
+-- ===== Office-boy out/in (attendance & movement) tracking =====
+CREATE TABLE IF NOT EXISTS outings (
+  id             SERIAL PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  out_date       TEXT NOT NULL,                       -- YYYY-MM-DD in configured tz
+  purpose        TEXT NOT NULL DEFAULT '',
+  out_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  back_at        TIMESTAMPTZ,
+  status         TEXT NOT NULL DEFAULT 'out',         -- out | in | incomplete
+  penalty_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  penalty_waived INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 async function init() {
@@ -153,6 +167,7 @@ async function init() {
   await seed('allowed_domains', process.env.ALLOWED_DOMAINS || '');   // comma-separated; empty = no self-onboarding
   await seed('boy_access_key', crypto.randomBytes(24).toString('hex')); // secret for office-boy no-login link
   await seed('boy_pin_hash', '');                                      // optional bcrypt PIN; empty = link only
+  await seed('penalty_amount', process.env.PENALTY_AMOUNT || '300');   // penalty for not checking back in (per day)
 
   const adminEmail = (process.env.ADMIN_EMAIL || 'admin@office.local').toLowerCase();
   const adminName = process.env.ADMIN_NAME || 'Office Admin';

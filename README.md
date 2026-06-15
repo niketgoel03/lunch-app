@@ -75,6 +75,13 @@ PUT  /api/admin/task-categories/:id/visibility {user_ids:[]}     (admin)
 GET/POST/PUT/DELETE /api/admin/tasks[/:id]                       (admin: create/assign/track)
 GET  /api/boy/tasks ; POST /api/boy/tasks/:id/status            (office boy, no login)
 
+# Office-boy out/in (attendance & movement)
+GET  /api/boy/outing/state                     (office boy: who's out + today history + penalty)
+POST /api/boy/outing/out   {user_id, purpose}  (mark Going Out)
+POST /api/boy/outing/in    {user_id}           (mark Back in Office)
+GET  /api/admin/outings[?from&to]              (admin: full audit + total penalties)
+PUT  /api/admin/outings/:id {penalty_waived, penalty_amount, purpose}  (admin: waive/override)
+
 # Office boy WITHOUT login (authenticated by secret key + optional PIN, sent as
 # x-boy-key / x-boy-pin headers or ?key=&pin= query):
 POST /api/boy/check
@@ -104,6 +111,10 @@ GET  /api/users  POST /api/users  PUT /api/users/:id     (admin)
 ### Task assignment module
 
 Admin creates **task categories** (Shopping, Courier, Bank Work, Office Supplies, External Visits seeded by default), assigns **tasks** to any employee with title/details/category, and configures **category visibility** per employee. Each task tracks status (Pending → In progress → Completed / Cancelled) with remarks and timestamps. Employees manage their tasks from the **My Tasks** tab; the office boy manages theirs from the no-login link.
+
+### Office-boy out/in tracking (attendance)
+
+From the no-login link the office boy marks **Going Out** (with optional purpose) and **Back in Office**. Every outing is logged with date, out time, back time, duration and name. If a return isn't marked before the day ends, the record is auto-flagged **Incomplete** and a configurable penalty (default ₹300, set in Admin → Daily rules) is applied. The admin sees the full **audit trail** with total penalties and can **waive or override** any penalty. The daily sweep runs on startup and every 30 minutes.
 
 ## 5. Security (baked in from day 1)
 
