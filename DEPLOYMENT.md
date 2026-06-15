@@ -126,51 +126,47 @@ sudo chown lunch:lunch /opt/lunch-app/.env
 
 The schema auto-creates and the admin user is seeded on first start.
 
-## 7. Run as a systemd service (auto-start, auto-restart)
+## 7. Run with PM2 (auto-start, auto-restart)
 
-Create `/etc/systemd/system/lunch-app.service`:
+PM2 is a Node process manager that keeps the app running, restarts it on crash, and brings it back after a reboot.
+
+Install PM2 globally:
 
 ```bash
-sudo tee /etc/systemd/system/lunch-app.service > /dev/null <<'UNIT'
-[Unit]
-Description=Office Lunch Order App
-After=network.target postgresql.service
-Wants=postgresql.service
-
-[Service]
-Type=simple
-User=lunch
-Group=lunch
-WorkingDirectory=/opt/lunch-app
-EnvironmentFile=/opt/lunch-app/.env
-ExecStart=/usr/bin/node server.js
-Restart=on-failure
-RestartSec=3
-# Hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/lunch-app
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+sudo npm install -g pm2
+pm2 -v
 ```
 
-Start and enable it:
+The repo includes `ecosystem.config.js` (PM2 reads it from the app directory). The app loads `.env` itself via dotenv, so PM2 only needs the correct working directory. Start it **as the `lunch` user** so it never runs as root:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now lunch-app
-sudo systemctl status lunch-app --no-pager
+cd /opt/lunch-app
+sudo -u lunch pm2 start ecosystem.config.js
+sudo -u lunch pm2 status
+```
+
+Enable start-on-boot for the `lunch` user. The `pm2 startup` command prints a `sudo env ... systemctl enable` line — copy and run exactly what it outputs:
+
+```bash
+sudo -u lunch pm2 startup systemd -u lunch --hp /opt/lunch-app
+# run the sudo command it prints, then save the current process list:
+sudo -u lunch pm2 save
 ```
 
 Check logs / confirm it bound to port 3000:
 
 ```bash
-journalctl -u lunch-app -n 50 --no-pager
+sudo -u lunch pm2 logs lunch-app --lines 50
 curl -s http://localhost:3000/api/menu   # expect 401 (not logged in) -> service is up
+```
+
+Handy PM2 commands (always as the `lunch` user):
+
+```bash
+sudo -u lunch pm2 restart lunch-app    # restart
+sudo -u lunch pm2 reload lunch-app     # zero-downtime reload
+sudo -u lunch pm2 stop lunch-app       # stop
+sudo -u lunch pm2 monit                # live dashboard
 ```
 
 ## 8. Nginx reverse proxy + HTTPS
@@ -243,8 +239,8 @@ Open `https://lunch.yourcompany.com`, enter the `ADMIN_EMAIL`, receive the OTP b
 sudo rsync -a --exclude node_modules --exclude .env /tmp/lunch-app/ /opt/lunch-app/
 sudo chown -R lunch:lunch /opt/lunch-app
 cd /opt/lunch-app && sudo -u lunch npm install --omit=dev
-sudo systemctl restart lunch-app
-journalctl -u lunch-app -n 30 --no-pager
+sudo -u lunch pm2 reload lunch-app        # zero-downtime restart
+sudo -u lunch pm2 logs lunch-app --lines 30 --nostream
 ```
 
 ## Database backups (cron)
@@ -276,6 +272,7 @@ gunzip -c /var/backups/lunch/lunchdb-YYYY-MM-DD.sql.gz | psql -U lunch -h localh
 - [ ] `app.set('trust proxy', 1)` is set so secure cookies work behind Nginx.
 - [ ] Postgres role uses a strong password; 5432 is not internet-exposed.
 - [ ] UFW enabled; only SSH + Nginx Full open.
+- [ ] PM2 runs as the `lunch` user (not root); `pm2 save` done and `pm2 startup` enabled so it survives reboots.
 - [ ] `certbot renew --dry-run` succeeds (auto-renewal works).
 - [ ] Daily DB backup cron in place and tested with a restore.
 - [ ] `npm audit --omit=dev` clean; SSH hardened (key-only, no root login).

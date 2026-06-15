@@ -112,6 +112,8 @@ lunch-order-app/
 ├── public/index.html  # single-page UI (login, order, office-boy, admin)
 ├── package.json
 ├── .env.example
+├── ecosystem.config.js # PM2 process config for production
+├── DEPLOYMENT.md       # manual VPS deploy guide (Ubuntu + PM2 + Nginx + HTTPS + Postgres)
 └── test/              # dev-only end-to-end smoke test (uses pg-mem; not loaded by the app)
 ```
 
