@@ -175,6 +175,20 @@ const findP = (d, email) => d.perPerson.find(p => p.email === email);
   ok((await call(admin, 'GET', '/api/admin/notifications')).data.some((n) => n.category === 'order'), 'new order generated an office-boy notification');
   ok(Array.isArray((await call(rahul, 'GET', '/api/notifications/mine')).data), 'user can fetch own notifications');
 
+  console.log('Weekend ordering rule');
+  await call(admin, 'PUT', '/api/ops-settings', { cutoff_time: '23:59', order_weekends: false });
+  const wkState = (await call(staff1, 'GET', '/api/orders/mine')).data.state;
+  if (wkState.isWeekend) {
+    const blocked = await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] });
+    ok(blocked.status === 403 && /weekend/i.test(blocked.data.error), 'ordering blocked on weekend');
+    await call(admin, 'PUT', '/api/ops-settings', { order_weekends: true });
+    ok((await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] })).status === 200, 'ordering allowed on weekend when enabled');
+    await call(admin, 'PUT', '/api/ops-settings', { order_weekends: false });
+  } else {
+    ok((await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] })).status === 200, 'weekday ordering works (weekends off)');
+    ok(wkState.weekendOrdering === false && wkState.isWeekend === false, 'state exposes weekend flags');
+  }
+
   console.log('Cutoff still enforced');
   await call(admin, 'PUT', '/api/settings', { cutoff_time: '00:00' });
   ok((await call(staff1, 'POST', '/api/orders', { items: [{ menu_item_id: m.data.id, qty: 1 }] })).status === 403, 'order rejected after cutoff (403)');

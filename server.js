@@ -60,9 +60,13 @@ function orderingState() {
   const cutoff = hhmmToMinutes(db.getSetting('cutoff_time'));
   const aggregate = hhmmToMinutes(db.getSetting('aggregate_time'));
   const manualOpen = db.getSetting('ordering_open') === '1';
+  const weekendOrdering = db.getSetting('order_weekends') === '1';
+  const dow = new Date(date + 'T00:00:00Z').getUTCDay(); // 0=Sun .. 6=Sat for the local calendar date
+  const isWeekend = dow === 0 || dow === 6;
   return {
     today: date, nowMinutes: minutes, cutoff, aggregate,
-    isOpen: manualOpen && minutes < cutoff,
+    isWeekend, weekendOrdering,
+    isOpen: manualOpen && minutes < cutoff && (weekendOrdering || !isWeekend),
     afterAggregate: minutes >= aggregate,
     cutoffTime: db.getSetting('cutoff_time'),
     aggregateTime: db.getSetting('aggregate_time'),
@@ -267,7 +271,11 @@ app.get('/api/orders/mine', auth, wrap(async (req, res) => {
 // Place or update today's order for a given user. Returns {status,error} or {ok,id}.
 async function placeOrderFor(targetUser, body, placedBy) {
   const st = orderingState();
-  if (!st.isOpen) return { status: 403, error: `Ordering is closed. Cutoff is ${st.cutoffTime} (${st.timezone}).` };
+  if (!st.isOpen) {
+    const why = (st.isWeekend && !st.weekendOrdering) ? 'No lunch ordering on weekends.'
+      : `Ordering is closed. Cutoff is ${st.cutoffTime} (${st.timezone}).`;
+    return { status: 403, error: why };
+  }
   let items;
   try { items = await validateItems(body.items, st.allowCustomItems); }
   catch (e) { return { status: 400, error: e.message }; }
@@ -493,6 +501,7 @@ app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
     currency: db.getSetting('currency'),
     allow_custom_items: db.getSetting('allow_custom_items') === '1',
     ordering_open: db.getSetting('ordering_open') === '1',
+    order_weekends: db.getSetting('order_weekends') === '1',
     allowed_domains: db.getSetting('allowed_domains') || '',
     boy_access_key: db.getSetting('boy_access_key') || '',
     boy_pin_set: !!db.getSetting('boy_pin_hash'),
@@ -511,6 +520,7 @@ async function applyOpsSettings(b) {
   if (b.currency) await db.setSetting('currency', String(b.currency).slice(0, 8));
   if (b.allow_custom_items !== undefined) await db.setSetting('allow_custom_items', b.allow_custom_items ? '1' : '0');
   if (b.ordering_open !== undefined) await db.setSetting('ordering_open', b.ordering_open ? '1' : '0');
+  if (b.order_weekends !== undefined) await db.setSetting('order_weekends', b.order_weekends ? '1' : '0');
   return null;
 }
 app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
@@ -536,6 +546,7 @@ app.get('/api/ops-settings', auth, requireRole('staff_admin', 'admin'), (req, re
     currency: db.getSetting('currency'),
     allow_custom_items: db.getSetting('allow_custom_items') === '1',
     ordering_open: db.getSetting('ordering_open') === '1',
+    order_weekends: db.getSetting('order_weekends') === '1',
   });
 });
 app.put('/api/ops-settings', auth, requireRole('staff_admin', 'admin'), wrap(async (req, res) => {

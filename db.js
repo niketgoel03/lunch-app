@@ -191,6 +191,7 @@ async function init() {
   await seed('currency', process.env.CURRENCY || 'INR');
   await seed('allow_custom_items', '1');
   await seed('ordering_open', '1');
+  await seed('order_weekends', process.env.ORDER_WEEKENDS || '0'); // 0 = no ordering on Sat/Sun
   await seed('allowed_domains', process.env.ALLOWED_DOMAINS || '');   // comma-separated; empty = no self-onboarding
   await seed('boy_access_key', crypto.randomBytes(24).toString('hex')); // secret for office-boy no-login link
   await seed('boy_pin_hash', '');                                      // optional bcrypt PIN; empty = link only

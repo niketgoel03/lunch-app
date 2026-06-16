@@ -248,12 +248,14 @@ async function viewOrder(){
   const {order,state}=await api('/api/orders/mine');STATE=state;
   DRAFT=order?order.items.map(i=>({name:i.name,qty:i.qty,unit_price:i.unit_price})):[];
   const open=state.isOpen;
-  const status=open?`<span class="pill ok"><span class="dot"></span>Open · closes ${state.cutoffTime}</span>`:`<span class="pill bad"><span class="dot"></span>Closed · cutoff ${state.cutoffTime} ${state.timezone}</span>`;
+  const weekendClosed=state.isWeekend && !state.weekendOrdering;
+  const status=open?`<span class="pill ok"><span class="dot"></span>Open · closes ${state.cutoffTime}</span>`:`<span class="pill bad"><span class="dot"></span>${weekendClosed?'Closed · weekend':'Closed · cutoff '+state.cutoffTime+' '+state.timezone}</span>`;
+  const closedMsg=weekendClosed?'No lunch ordering on weekends. Please order on a weekday.':`Ordering is closed. Requests are only accepted before <b>${state.cutoffTime}</b>.`;
   v.innerHTML=`
     <div class="card">
       <div class="card-head"><div><h2>My lunch order</h2><p class="sub">${new Date().toDateString()}</p></div>${status}</div>
       ${order?msg(`Order placed — <b>${money(order.payment.amount)}</b>. ${order.payment.paid?'Payment received ✓':'Payment pending.'}`,order.payment.paid?'ok':'info'):''}
-      ${!open?msg(`Ordering is closed. Requests are only accepted before <b>${state.cutoffTime}</b>.`,'err'):''}
+      ${!open?msg(closedMsg,'err'):''}
       <div id="builder" style="${open?'':'display:none'}">
         <label>Add from menu</label>
         <div class="row"><select id="menuSel">${MENU.filter(m=>m.available).map(m=>`<option value="${m.id}">${esc(m.name)} — ${money(m.price)}</option>`).join('')||'<option disabled>No items</option>'}</select><button class="btn sm" id="addMenu">${ICON.plus} Add</button></div>
@@ -375,6 +377,7 @@ async function viewManage(){
       </div>
       <label class="row" style="gap:8px;margin-top:14px"><input type="checkbox" id="opCustom" ${ops.allow_custom_items?'checked':''} style="width:auto"> <span>Allow custom (off-menu) items</span></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="opOpen" ${ops.ordering_open?'checked':''} style="width:auto"> <span>Ordering enabled (master switch)</span></label>
+      <label class="row" style="gap:8px"><input type="checkbox" id="opWk" ${ops.order_weekends?'checked':''} style="width:auto"> <span>Allow ordering on weekends (Sat/Sun)</span></label>
       <div style="margin-top:14px"><button class="btn" id="opSave">Save daily rules</button></div></div>
 
     <div class="card"><div class="card-head"><h2>Order on behalf of staff</h2></div>
@@ -407,7 +410,7 @@ async function viewManage(){
       <div id="catMsg"></div></div>`;
 
   // ----- daily rules -----
-  $('#opSave').onclick=async()=>{try{await api('/api/ops-settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#opCutoff').value.trim(),aggregate_time:$('#opAggt').value.trim(),timezone:$('#opTz').value.trim(),currency:$('#opCur').value.trim(),allow_custom_items:$('#opCustom').checked,ordering_open:$('#opOpen').checked})});$('#opsMsg').innerHTML=msg('Daily rules saved.','ok');}catch(e){$('#opsMsg').innerHTML=msg(e.message,'err');}};
+  $('#opSave').onclick=async()=>{try{await api('/api/ops-settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#opCutoff').value.trim(),aggregate_time:$('#opAggt').value.trim(),timezone:$('#opTz').value.trim(),currency:$('#opCur').value.trim(),allow_custom_items:$('#opCustom').checked,ordering_open:$('#opOpen').checked,order_weekends:$('#opWk').checked})});$('#opsMsg').innerHTML=msg('Daily rules saved.','ok');}catch(e){$('#opsMsg').innerHTML=msg(e.message,'err');}};
 
   // ----- order on behalf -----
   let OB=[];
@@ -458,6 +461,7 @@ async function viewAdmin(){
       <input id="domains" value="${esc(s.allowed_domains)}" placeholder="ayasya.com, company.com">
       <label class="row" style="gap:8px;margin-top:14px"><input type="checkbox" id="custom" ${s.allow_custom_items?'checked':''} style="width:auto"> <span>Allow custom (off-menu) items</span></label>
       <label class="row" style="gap:8px"><input type="checkbox" id="openchk" ${s.ordering_open?'checked':''} style="width:auto"> <span>Ordering enabled (master switch)</span></label>
+      <label class="row" style="gap:8px"><input type="checkbox" id="wkchk" ${s.order_weekends?'checked':''} style="width:auto"> <span>Allow ordering on weekends (Sat/Sun)</span></label>
       <div style="margin-top:16px"><button class="btn" id="saveSet">Save rules</button></div></div>
 
     <div class="card"><div class="card-head"><h2>Office boy access</h2><span class="pill ${s.boy_pin_set?'ok':'neutral'}">${s.boy_pin_set?'PIN set':'No PIN'}</span></div>
@@ -493,7 +497,7 @@ async function viewAdmin(){
       <div class="row wrap-row"><input id="uName" placeholder="Name" style="min-width:120px"><input id="uEmail" placeholder="email@company.com" style="min-width:170px"><select id="uRole" style="max-width:150px"><option value="staff">staff</option><option value="office_boy">office_boy</option><option value="admin">admin</option></select><button class="btn sm" id="addU">${ICON.plus} Add</button></div><div id="uMsg"></div></div>`;
 
   // rules
-  $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),penalty_amount:Number($('#penalty').value)||0,session_idle_minutes:Number($('#idle').value)||30,allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
+  $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),penalty_amount:Number($('#penalty').value)||0,session_idle_minutes:Number($('#idle').value)||30,allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked,order_weekends:$('#wkchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
   // outings audit
   renderOutings(outings.outings);
   // notification center

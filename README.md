@@ -33,6 +33,7 @@ A small internal web app where office staff place their lunch request before a d
 - Server time is the single source of truth (never trust the browser clock).
 - `POST /api/orders` and edits are **rejected after `cutoff_time`** with HTTP 403.
 - Times are evaluated in the configured `timezone` (default `Asia/Kolkata`).
+- **No ordering on weekends** (Sat/Sun) by default — weekend requests return 403 with a clear message. Re-enable via Daily rules → "Allow ordering on weekends" if ever needed.
 - The office-boy aggregation view is only meaningful at/after `aggregate_time`; it shows the frozen list of orders placed before cutoff.
 
 ## 3. Data model
