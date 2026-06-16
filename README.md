@@ -24,7 +24,7 @@ A small internal web app where office staff place their lunch request before a d
 
 **Roles**
 - `staff` — place / edit / cancel their own order until cutoff; manage their own assigned tasks.
-- `staff_admin` — delegated operational control (no full admin): place orders on behalf of staff, create/assign tasks (including to the office boy/Rahul), and manage task categories + visibility. Uses the **Manage** tab.
+- `staff_admin` — delegated operational control (no full admin): place orders on behalf of staff, create/assign tasks (including to the office boy/Rahul), manage task categories + visibility, and edit the **basic daily rules** (cutoff, aggregate, timezone, currency, custom-items, ordering switch). Uses the **Manage** tab. Cannot touch users, domains, penalties, the office-boy key, or notifications.
 - `office_boy` — see the aggregated list + per-person payment after cutoff; mark paid/delivered; out/in attendance; assigned tasks. Accessed via the no-login link.
 - `admin` — everything: settings, menu, users, attendance audit, notification center, plus the Manage tab.
 
@@ -136,6 +136,12 @@ From the no-login link the office boy marks **Going Out** (with optional purpose
 Self-hosted Web Push via Service Worker + VAPID — no Firebase, no third-party service. Keys are auto-generated on first run and stored in the DB. Users tap 🔔 to enable notifications on a device (the office boy enables per-person from the attendance card). Notifications fire on: new lunch order (→ office boy), task assigned (→ assignee), order cancelled & payment received (→ employee), plus attendance reminders ("out too long" after `OUT_MAX_MINUTES`, and "missed return"). Admins also get a **Notification Center** to broadcast a custom message to everyone or a group, and every notification is stored with delivery status in the **history log**.
 
 > Web Push and Service Workers require **HTTPS** (already in place via Nginx + Let's Encrypt). `localhost` also works for development.
+
+### Sessions & live refresh
+
+- **Sliding session:** every authenticated request re-issues the session cookie, so an actively-used session never expires mid-use.
+- **Idle lock:** after a configurable period of *user* inactivity (default 30 min, Admin → Daily rules → "Session idle lock"), the screen locks and asks for the PIN again (or OTP). Background refreshes do **not** reset the idle timer, so the lock still fires on real inactivity.
+- **Background auto-refresh:** the Collection view silently re-fetches every 30s (only when the tab is visible and no field is focused), so payments/orders stay current without manual reload and without clobbering anything in progress. The office-boy page auto-refreshes its collection + tasks too.
 
 ## 5. Security (baked in from day 1)
 

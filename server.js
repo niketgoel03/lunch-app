@@ -87,6 +87,7 @@ const auth = wrap(async (req, res, next) => {
   const user = await db.get('SELECT id, email, name, role, active, pass_hash FROM users WHERE id = $1', [payload.uid]);
   if (!user || !user.active) return res.status(401).json({ error: 'Account inactive' });
   req.user = user;
+  setSession(res, user); // sliding session: every authenticated request extends the cookie
   next();
 });
 const requireRole = (...roles) => (req, res, next) =>
@@ -169,7 +170,11 @@ app.post('/api/auth/verify-otp', otpVerifyLimiter, wrap(async (req, res) => {
 app.post('/api/auth/logout', (req, res) => { res.clearCookie('session'); res.json({ ok: true }); });
 
 app.get('/api/me', auth, (req, res) => {
-  res.json({ user: { email: req.user.email, name: req.user.name, role: req.user.role, hasPassword: !!req.user.pass_hash }, state: orderingState() });
+  res.json({
+    user: { email: req.user.email, name: req.user.name, role: req.user.role, hasPassword: !!req.user.pass_hash },
+    state: orderingState(),
+    idleMinutes: Math.max(5, Number(db.getSetting('session_idle_minutes') || 30)),
+  });
 });
 
 // PIN / password login (faster repeat logins; OTP remains available as a fallback).
@@ -492,28 +497,50 @@ app.get('/api/settings', auth, requireRole('admin'), (req, res) => {
     boy_access_key: db.getSetting('boy_access_key') || '',
     boy_pin_set: !!db.getSetting('boy_pin_hash'),
     penalty_amount: Number(db.getSetting('penalty_amount') || 0),
+    session_idle_minutes: Number(db.getSetting('session_idle_minutes') || 30),
   });
 });
-app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
-  const b = req.body || {};
-  const reTime = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (b.cutoff_time && !reTime.test(b.cutoff_time)) return res.status(400).json({ error: 'cutoff_time must be HH:MM' });
-  if (b.aggregate_time && !reTime.test(b.aggregate_time)) return res.status(400).json({ error: 'aggregate_time must be HH:MM' });
+const reTime = /^([01]\d|2[0-3]):[0-5]\d$/;
+// Apply the basic operational settings (shared by admin /api/settings and staff_admin /api/ops-settings).
+async function applyOpsSettings(b) {
+  if (b.cutoff_time && !reTime.test(b.cutoff_time)) return 'cutoff_time must be HH:MM';
+  if (b.aggregate_time && !reTime.test(b.aggregate_time)) return 'aggregate_time must be HH:MM';
   if (b.cutoff_time) await db.setSetting('cutoff_time', b.cutoff_time);
   if (b.aggregate_time) await db.setSetting('aggregate_time', b.aggregate_time);
   if (b.timezone) await db.setSetting('timezone', String(b.timezone).slice(0, 64));
   if (b.currency) await db.setSetting('currency', String(b.currency).slice(0, 8));
   if (b.allow_custom_items !== undefined) await db.setSetting('allow_custom_items', b.allow_custom_items ? '1' : '0');
   if (b.ordering_open !== undefined) await db.setSetting('ordering_open', b.ordering_open ? '1' : '0');
+  return null;
+}
+app.put('/api/settings', auth, requireRole('admin'), wrap(async (req, res) => {
+  const b = req.body || {};
+  const err = await applyOpsSettings(b);
+  if (err) return res.status(400).json({ error: err });
   if (b.allowed_domains !== undefined) {
     const cleaned = String(b.allowed_domains).split(',')
       .map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean).join(',');
     await db.setSetting('allowed_domains', cleaned);
   }
-  if (b.penalty_amount !== undefined) {
-    const amt = Math.max(0, Number(b.penalty_amount) || 0);
-    await db.setSetting('penalty_amount', String(amt));
-  }
+  if (b.penalty_amount !== undefined) await db.setSetting('penalty_amount', String(Math.max(0, Number(b.penalty_amount) || 0)));
+  if (b.session_idle_minutes !== undefined) await db.setSetting('session_idle_minutes', String(Math.max(5, Number(b.session_idle_minutes) || 30)));
+  res.json({ ok: true });
+}));
+
+// Basic operational settings for STAFF_ADMIN (cutoff, aggregate, tz, currency, toggles) — no security/admin keys.
+app.get('/api/ops-settings', auth, requireRole('staff_admin', 'admin'), (req, res) => {
+  res.json({
+    cutoff_time: db.getSetting('cutoff_time'),
+    aggregate_time: db.getSetting('aggregate_time'),
+    timezone: db.getSetting('timezone'),
+    currency: db.getSetting('currency'),
+    allow_custom_items: db.getSetting('allow_custom_items') === '1',
+    ordering_open: db.getSetting('ordering_open') === '1',
+  });
+});
+app.put('/api/ops-settings', auth, requireRole('staff_admin', 'admin'), wrap(async (req, res) => {
+  const err = await applyOpsSettings(req.body || {});
+  if (err) return res.status(400).json({ error: err });
   res.json({ ok: true });
 }));
 

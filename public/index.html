@@ -131,6 +131,8 @@ const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ICON={order:'🍱',tasks:'🗂️',collect:'💰',admin:'⚙️',check:'✓',x:'✕',plus:'+',copy:'⧉',refresh:'↻'};
 const api=async(url,opts={})=>{const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;};
 let ME=null,STATE=null,TAB='order';
+let IDLE_MS=30*60*1000, lastActivity=Date.now(), LOCKED=false, timersOn=false;
+const REFRESHABLE=new Set(['agg']); // views safe to silently re-fetch (no in-progress user input/draft)
 const money=n=>(STATE?.currency||'')+' '+Number(n||0).toFixed(2);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const msg=(t,k='info')=>`<div class="msg ${k}">${t}</div>`;
@@ -183,8 +185,8 @@ function renderLogin(step='email',email='',note=''){
   setTimeout(()=>$('#email')?.focus(),50);
 }
 async function afterAuth(email){
-  const d=await api('/api/me'); ME=d.user; STATE=d.state;
-  if(!ME.hasPassword){ renderLogin('setpin', email); } else { renderShell(); }
+  const d=await api('/api/me'); ME=d.user; STATE=d.state; IDLE_MS=Math.max(5,(d.idleMinutes||30))*60000; lastActivity=Date.now();
+  if(!ME.hasPassword){ renderLogin('setpin', email); } else { renderShell(); startTimers(); }
 }
 
 /* ---------- Shell ---------- */
@@ -214,7 +216,7 @@ function renderShell(){
        <div class="content" id="view"></div>
      </div>
    </div>`;
-  $('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});ME=null;renderLogin();};
+  $('#logout').onclick=async()=>{LOCKED=false;await api('/api/auth/logout',{method:'POST'});ME=null;renderLogin();};
   $('#bell').onclick=()=>enablePush();
   refreshBell();
   const ib=$('#install'); if(ib){ib.onclick=doInstall; if(deferredPrompt)ib.style.display='';}
@@ -224,6 +226,7 @@ function renderShell(){
   $$('#nav button').forEach(b=>b.onclick=()=>{TAB=b.dataset.tab;$('#sb').classList.remove('open');$('#scrim').classList.remove('show');route();});
   route();
   enablePush(true);
+  startTimers();
 }
 function route(){
   $$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===TAB));
@@ -361,8 +364,19 @@ window.collectApi=(method,url,body)=>api(url,{method,body:JSON.stringify(body)})
 /* ---------- Manage (staff_admin / admin) ---------- */
 async function viewManage(){
   const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  const [people,cats,tasks,menu]=await Promise.all([api('/api/people'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/menu')]);
+  const [people,cats,tasks,menu,ops]=await Promise.all([api('/api/people'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/menu'),api('/api/ops-settings')]);
   v.innerHTML=`
+    <div class="card"><div class="card-head"><h2>Daily rules</h2></div><div id="opsMsg"></div>
+      <div class="grid2">
+        <div><label>Cutoff time (HH:MM)</label><input id="opCutoff" value="${ops.cutoff_time}"></div>
+        <div><label>Aggregate time (HH:MM)</label><input id="opAggt" value="${ops.aggregate_time}"></div>
+        <div><label>Timezone</label><input id="opTz" value="${esc(ops.timezone)}"></div>
+        <div><label>Currency</label><input id="opCur" value="${esc(ops.currency)}"></div>
+      </div>
+      <label class="row" style="gap:8px;margin-top:14px"><input type="checkbox" id="opCustom" ${ops.allow_custom_items?'checked':''} style="width:auto"> <span>Allow custom (off-menu) items</span></label>
+      <label class="row" style="gap:8px"><input type="checkbox" id="opOpen" ${ops.ordering_open?'checked':''} style="width:auto"> <span>Ordering enabled (master switch)</span></label>
+      <div style="margin-top:14px"><button class="btn" id="opSave">Save daily rules</button></div></div>
+
     <div class="card"><div class="card-head"><h2>Order on behalf of staff</h2></div>
       <p class="sub">Place or update today's lunch order for a colleague. Same cutoff applies (${STATE?.cutoffTime||''}).</p>
       <div id="obMsg"></div>
@@ -391,6 +405,9 @@ async function viewManage(){
         <div class="row"><input id="catName" placeholder="New category name"><button class="btn ghost sm" id="addCat">${ICON.plus} Add</button></div>
         <button class="btn" id="saveVis">💾 Save Visibility Settings</button></div>
       <div id="catMsg"></div></div>`;
+
+  // ----- daily rules -----
+  $('#opSave').onclick=async()=>{try{await api('/api/ops-settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#opCutoff').value.trim(),aggregate_time:$('#opAggt').value.trim(),timezone:$('#opTz').value.trim(),currency:$('#opCur').value.trim(),allow_custom_items:$('#opCustom').checked,ordering_open:$('#opOpen').checked})});$('#opsMsg').innerHTML=msg('Daily rules saved.','ok');}catch(e){$('#opsMsg').innerHTML=msg(e.message,'err');}};
 
   // ----- order on behalf -----
   let OB=[];
@@ -435,6 +452,7 @@ async function viewAdmin(){
         <div><label>Timezone</label><input id="tz" value="${esc(s.timezone)}"></div>
         <div><label>Currency</label><input id="cur" value="${esc(s.currency)}"></div>
         <div><label>Missing check-in penalty (${esc(s.currency)})</label><input id="penalty" type="number" min="0" step="50" value="${s.penalty_amount}"></div>
+        <div><label>Session idle lock (minutes)</label><input id="idle" type="number" min="5" step="5" value="${s.session_idle_minutes}"></div>
       </div>
       <label>Allowed email domains <span class="muted small">(comma-separated; blank = no self sign-up)</span></label>
       <input id="domains" value="${esc(s.allowed_domains)}" placeholder="ayasya.com, company.com">
@@ -475,7 +493,7 @@ async function viewAdmin(){
       <div class="row wrap-row"><input id="uName" placeholder="Name" style="min-width:120px"><input id="uEmail" placeholder="email@company.com" style="min-width:170px"><select id="uRole" style="max-width:150px"><option value="staff">staff</option><option value="office_boy">office_boy</option><option value="admin">admin</option></select><button class="btn sm" id="addU">${ICON.plus} Add</button></div><div id="uMsg"></div></div>`;
 
   // rules
-  $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),penalty_amount:Number($('#penalty').value)||0,allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
+  $('#saveSet').onclick=async()=>{try{await api('/api/settings',{method:'PUT',body:JSON.stringify({cutoff_time:$('#cutoff').value.trim(),aggregate_time:$('#aggt').value.trim(),timezone:$('#tz').value.trim(),currency:$('#cur').value.trim(),penalty_amount:Number($('#penalty').value)||0,session_idle_minutes:Number($('#idle').value)||30,allowed_domains:$('#domains').value,allow_custom_items:$('#custom').checked,ordering_open:$('#openchk').checked})});$('#setMsg').innerHTML=msg('Saved.','ok');}catch(e){$('#setMsg').innerHTML=msg(e.message,'err');}};
   // outings audit
   renderOutings(outings.outings);
   // notification center
@@ -565,8 +583,41 @@ function maybeIOSBanner(){
   $('#iosX').onclick=()=>{try{localStorage.setItem('iosInstallDismissed','1');}catch{} el.remove();};
 }
 
+/* ---------- Session: sliding window, idle lock, background auto-refresh ---------- */
+['click','keydown','mousedown','touchstart','scroll'].forEach(ev=>window.addEventListener(ev,()=>{lastActivity=Date.now();},{passive:true,capture:true}));
+async function safeRefresh(){
+  if(LOCKED||!ME||document.visibilityState!=='visible'||!REFRESHABLE.has(TAB))return;
+  const ae=document.activeElement; if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return; // don't clobber typing
+  const y=window.scrollY;
+  try{ await route(); window.scrollTo(0,y); }
+  catch(e){ if(/logged in|expired|HTTP 401/i.test(e.message)) lock(); }
+}
+function lock(){
+  if(LOCKED||!ME)return; LOCKED=true;
+  const el=document.createElement('div'); el.id='lockScreen';
+  el.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(15,23,41,.6);backdrop-filter:blur(6px);display:grid;place-items:center;padding:20px';
+  el.innerHTML=`<div class="card" style="max-width:380px;width:100%;margin:0;text-align:center">
+    <div style="font-size:30px">🔒</div><h2 style="margin:.3em 0">Session locked</h2>
+    <p class="muted" style="margin:0 0 12px">You've been inactive. Enter your PIN to continue where you left off.</p>
+    <div id="lockMsg"></div>
+    <input id="lockPin" type="password" placeholder="PIN / password" style="text-align:center">
+    <div style="margin-top:12px;display:flex;gap:8px"><button class="btn ghost" id="lockOtp">Use OTP instead</button><button class="btn block" id="lockGo">Unlock</button></div>
+  </div>`;
+  document.body.appendChild(el);
+  $('#lockGo').onclick=async()=>{const pw=$('#lockPin').value;if(!pw)return;try{await api('/api/auth/login',{method:'POST',body:JSON.stringify({email:ME.email,password:pw})});unlock();}catch(e){$('#lockMsg').innerHTML=msg(e.message,'err');}};
+  $('#lockOtp').onclick=()=>{LOCKED=false;el.remove();ME=null;renderLogin('email');};
+  $('#lockPin').addEventListener('keydown',e=>{if(e.key==='Enter')$('#lockGo').click();});
+  setTimeout(()=>$('#lockPin')?.focus(),50);
+}
+function unlock(){const el=$('#lockScreen');if(el)el.remove();LOCKED=false;lastActivity=Date.now();route();}
+function startTimers(){
+  if(timersOn)return; timersOn=true;
+  setInterval(safeRefresh,30000); // background data refresh every 30s (safe views only)
+  setInterval(()=>{ if(ME&&!LOCKED&&Date.now()-lastActivity>IDLE_MS) lock(); },15000); // idle check
+}
+
 /* ---------- Boot ---------- */
-async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;renderShell();}catch{renderLogin();}}
+async function boot(){try{const d=await api('/api/me');ME=d.user;STATE=d.state;IDLE_MS=Math.max(5,(d.idleMinutes||30))*60000;lastActivity=Date.now();renderShell();startTimers();}catch{renderLogin();}}
 boot();
 </script>
 </body>

@@ -196,6 +196,7 @@ async function init() {
   await seed('boy_pin_hash', '');                                      // optional bcrypt PIN; empty = link only
   await seed('penalty_amount', process.env.PENALTY_AMOUNT || '300');   // penalty for not checking back in (per day)
   await seed('out_max_minutes', process.env.OUT_MAX_MINUTES || '120'); // alert when office boy is out longer than this
+  await seed('session_idle_minutes', process.env.SESSION_IDLE_MINUTES || '30'); // lock UI after this much inactivity
 
   // VAPID keys for web push (generated once, then persisted).
   if (!(await get("SELECT 1 FROM settings WHERE key = 'vapid_public'"))) {

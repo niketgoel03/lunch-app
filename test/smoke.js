@@ -151,6 +151,15 @@ const findP = (d, email) => d.perPerson.find(p => p.email === email);
   ok((await call(staff1, 'GET', '/api/task-categories/mine')).data.some(c => c.id === cat2.data.id), 'bulk visibility applied to the staff member');
   ok((await call(staff2, 'GET', '/api/settings')).status === 403, 'staff_admin has no full-admin access (settings blocked)');
 
+  console.log('staff_admin basic ops-settings + session');
+  ok((await call(staff2, 'GET', '/api/ops-settings')).status === 200, 'staff_admin can read ops-settings');
+  ok((await call(staff1, 'GET', '/api/ops-settings')).status === 403, 'regular staff cannot read ops-settings');
+  ok((await call(staff2, 'PUT', '/api/ops-settings', { cutoff_time: '14:30' })).status === 200, 'staff_admin updates cutoff time');
+  ok((await call(staff2, 'GET', '/api/ops-settings')).data.cutoff_time === '14:30', 'cutoff change persisted');
+  ok((await call(staff2, 'PUT', '/api/ops-settings', { cutoff_time: '9:9' })).status === 400, 'invalid time rejected');
+  await call(admin, 'PUT', '/api/ops-settings', { cutoff_time: '23:59' }); // restore open for later steps
+  ok((await call(staff2, 'GET', '/api/me')).data.idleMinutes >= 5, '/api/me exposes session idle minutes');
+
   console.log('Web push + notification center');
   ok((await call(admin, 'GET', '/api/push/vapid')).data.publicKey.length > 0, 'VAPID public key exposed');
   const subA = { endpoint: 'https://push.example.com/staff2', keys: { p256dh: 'BPp256dhKey', auth: 'authKey' } };

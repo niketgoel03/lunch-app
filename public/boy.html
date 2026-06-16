@@ -186,6 +186,13 @@ function renderTasks(){
 }
 if(!KEY){$('#root').innerHTML=`<div class="center"><div class="card"><div class="mark-lg">${ICON.cart}</div><h2>Missing access link</h2><p class="muted">Open the private link your admin shared with you.</p></div></div>`;}
 else{load();}
+// Background auto-refresh: keep collection/tasks/attendance live without manual reload,
+// skipping when the tab is hidden or a field is being edited (no data loss).
+setInterval(()=>{
+  if(!KEY||document.visibilityState!=='visible')return;
+  const ae=document.activeElement; if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;
+  if(DATA) load();
+},30000);
 </script>
 </body>
 </html>
