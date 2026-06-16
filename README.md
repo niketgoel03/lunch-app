@@ -23,9 +23,10 @@ A small internal web app where office staff place their lunch request before a d
 **Mail transports (`MAIL_TRANSPORT`):** `graph` (Microsoft Graph client-credentials → `/users/{sender}/sendMail`), `smtp` (nodemailer), or `console` (dev: prints OTP to log + UI). The Graph app registration needs the **application** permission `Mail.Send` with admin consent, plus `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, and a `GRAPH_SENDER` mailbox.
 
 **Roles**
-- `staff` — place / edit / cancel their own order until cutoff.
-- `office_boy` — see the aggregated list + per-person payment after cutoff; mark paid/delivered.
-- `admin` — manage settings, menu, and users.
+- `staff` — place / edit / cancel their own order until cutoff; manage their own assigned tasks.
+- `staff_admin` — delegated operational control (no full admin): place orders on behalf of staff, create/assign tasks (including to the office boy/Rahul), and manage task categories + visibility. Uses the **Manage** tab.
+- `office_boy` — see the aggregated list + per-person payment after cutoff; mark paid/delivered; out/in attendance; assigned tasks. Accessed via the no-login link.
+- `admin` — everything: settings, menu, users, attendance audit, notification center, plus the Manage tab.
 
 ## 2. Cutoff logic (the core rule)
 
@@ -72,9 +73,12 @@ POST /api/orders/:orderId/cancel     (office_boy/admin) -> emails employee; paid
 GET  /api/tasks/mine                          (any logged-in employee)
 POST /api/tasks/:id/status                     {status, remarks}   (own tasks only)
 GET  /api/task-categories/mine                 (categories visible to me)
-GET/POST/PUT/DELETE /api/admin/task-categories[/:id]            (admin)
-PUT  /api/admin/task-categories/:id/visibility {user_ids:[]}     (admin)
-GET/POST/PUT/DELETE /api/admin/tasks[/:id]                       (admin: create/assign/track)
+GET/POST/PUT/DELETE /api/admin/task-categories[/:id]            (staff_admin/admin)
+PUT  /api/admin/task-categories/:id/visibility {user_ids:[]}     (staff_admin/admin)
+PUT  /api/admin/task-visibility { map:{catId:[userId,...]} }     (staff_admin/admin: save all at once)
+GET/POST/PUT/DELETE /api/admin/tasks[/:id]                       (staff_admin/admin: create/assign/track)
+GET  /api/people                                                 (staff_admin/admin: active people)
+POST /api/orders/for/:userId  { items[], note }                  (staff_admin/admin: order on behalf)
 GET  /api/boy/tasks ; POST /api/boy/tasks/:id/status            (office boy, no login)
 
 # Office-boy out/in (attendance & movement)

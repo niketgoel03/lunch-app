@@ -188,8 +188,9 @@ async function afterAuth(email){
 }
 
 /* ---------- Shell ---------- */
-const NAV=[['order','My Order','order'],['tasks','My Tasks','tasks'],['agg','Collection','collect'],['admin','Admin','admin']];
-function visibleNav(){return NAV.filter(([k])=>{if(k==='agg')return ME.role==='office_boy'||ME.role==='admin';if(k==='admin')return ME.role==='admin';return true;});}
+const NAV=[['order','My Order','order'],['tasks','My Tasks','tasks'],['manage','Manage','admin'],['agg','Collection','collect'],['admin','Admin','admin']];
+const isManager=()=>ME.role==='staff_admin'||ME.role==='admin';
+function visibleNav(){return NAV.filter(([k])=>{if(k==='agg')return ME.role==='office_boy'||ME.role==='admin';if(k==='admin')return ME.role==='admin';if(k==='manage')return isManager();return true;});}
 function renderShell(){
   $('#root').innerHTML=`
    <div class="app">
@@ -230,6 +231,7 @@ function route(){
   $('#ttl').textContent=lbl;
   if(TAB==='order')return viewOrder();
   if(TAB==='tasks')return viewTasks();
+  if(TAB==='manage')return viewManage();
   if(TAB==='agg')return viewAggregate();
   if(TAB==='admin')return viewAdmin();
 }
@@ -356,12 +358,75 @@ function renderCollection(v,d,refresh,prefix,role){
 }
 window.collectApi=(method,url,body)=>api(url,{method,body:JSON.stringify(body)});
 
+/* ---------- Manage (staff_admin / admin) ---------- */
+async function viewManage(){
+  const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
+  const [people,cats,tasks,menu]=await Promise.all([api('/api/people'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/menu')]);
+  v.innerHTML=`
+    <div class="card"><div class="card-head"><h2>Order on behalf of staff</h2></div>
+      <p class="sub">Place or update today's lunch order for a colleague. Same cutoff applies (${STATE?.cutoffTime||''}).</p>
+      <div id="obMsg"></div>
+      <label>Employee</label><select id="obUser"><option value="">— select —</option>${people.map(p=>`<option value="${p.id}">${esc(p.name||p.email)} (${esc(p.role)})</option>`).join('')}</select>
+      <label>Add item</label>
+      <div class="row"><select id="obSel">${menu.filter(m=>m.available).map(m=>`<option value="${m.id}">${esc(m.name)} — ${money(m.price)}</option>`).join('')||'<option disabled>No items</option>'}</select><button class="btn sm" id="obAdd">${ICON.plus} Add</button></div>
+      <div id="obLines" style="margin-top:8px"></div>
+      <label>Note (optional)</label><input id="obNote" maxlength="300" placeholder="e.g. less spicy">
+      <div class="totbar"><span id="obTot">Total: ${money(0)}</span><button class="btn" id="obPlace">Place order</button></div></div>
+
+    <div class="card"><div class="card-head"><h2>Assign a task</h2></div><div id="taskMsg"></div>
+      <div class="grid2">
+        <div><label>Title</label><input id="ttitle" placeholder="e.g. Deposit cheque at bank"></div>
+        <div><label>Category</label><select id="tcat"><option value="">—</option>${cats.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+      </div>
+      <label>Assign to <span class="muted small">(staff, office boy / Rahul, anyone)</span></label>
+      <select id="tassignee"><option value="">— select employee —</option>${people.map(u=>`<option value="${u.id}">${esc(u.name||u.email)} (${esc(u.role)})</option>`).join('')}</select>
+      <label>Details (optional)</label><textarea id="tdetails" placeholder="Any instructions…"></textarea>
+      <div style="margin-top:12px"><button class="btn" id="addTask">${ICON.plus} Create & assign</button></div>
+      <hr><div id="adminTasks">${tasks.length?tasks.map(t=>adminTaskRow(t,people,cats)).join(''):'<p class="empty">No tasks yet.</p>'}</div></div>
+
+    <div class="card"><div class="card-head"><h2>Task categories &amp; visibility</h2></div>
+      <p class="sub">Tick which employees can see each category. None ticked = visible to everyone.</p>
+      <div id="catList"></div>
+      <div class="row wrap-row" style="margin-top:12px;justify-content:space-between">
+        <div class="row"><input id="catName" placeholder="New category name"><button class="btn ghost sm" id="addCat">${ICON.plus} Add</button></div>
+        <button class="btn" id="saveVis">💾 Save Visibility Settings</button></div>
+      <div id="catMsg"></div></div>`;
+
+  // ----- order on behalf -----
+  let OB=[];
+  const obTot=()=>{const t=OB.reduce((s,i)=>s+i.qty*i.price,0);$('#obTot').textContent='Total: '+money(t);};
+  const obLines=()=>{$('#obLines').innerHTML=OB.length?OB.map((it,i)=>`<div class="line" style="grid-template-columns:1fr 84px 92px 38px"><span class="nm">${esc(it.name)}</span><input type="number" min="1" max="50" value="${it.qty}" data-i="${i}" class="obq"><span class="muted">${money(it.price)}</span><button class="btn ghost sm" data-d="${i}">${ICON.x}</button></div>`).join(''):'<p class="empty">No items added.</p>';
+    $$('#obLines .obq').forEach(q=>q.oninput=e=>{OB[e.target.dataset.i].qty=Math.max(1,parseInt(e.target.value)||1);obTot();});
+    $$('#obLines [data-d]').forEach(b=>b.onclick=()=>{OB.splice(b.dataset.d,1);obLines();});obTot();};
+  obLines();
+  $('#obAdd').onclick=()=>{const m=menu.find(x=>x.id==$('#obSel').value);if(m){OB.push({menu_item_id:m.id,name:m.name,qty:1,price:m.price});obLines();}};
+  $('#obPlace').onclick=async()=>{const uid=$('#obUser').value;if(!uid){$('#obMsg').innerHTML=msg('Select an employee.','err');return;}if(!OB.length){$('#obMsg').innerHTML=msg('Add at least one item.','err');return;}
+    try{await api('/api/orders/for/'+uid,{method:'POST',body:JSON.stringify({items:OB.map(i=>({menu_item_id:i.menu_item_id,qty:i.qty})),note:$('#obNote').value})});$('#obMsg').innerHTML=msg('Order placed for the selected employee.','ok');OB=[];obLines();$('#obNote').value='';}catch(e){$('#obMsg').innerHTML=msg(e.message,'err');}};
+
+  // ----- assign task -----
+  $('#addTask').onclick=async()=>{const title=$('#ttitle').value.trim();if(!title){$('#taskMsg').innerHTML=msg('Title required','err');return;}
+    try{await api('/api/admin/tasks',{method:'POST',body:JSON.stringify({title,category_id:$('#tcat').value||null,assignee_id:$('#tassignee').value||null,details:$('#tdetails').value})});viewManage();}catch(e){$('#taskMsg').innerHTML=msg(e.message,'err');}};
+  $$('#adminTasks [data-tdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this task?'))return;await api('/api/admin/tasks/'+b.dataset.tdel,{method:'DELETE'});viewManage();});
+  $$('#adminTasks [data-tup]').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-trow]');await api('/api/admin/tasks/'+b.dataset.tup,{method:'PUT',body:JSON.stringify({assignee_id:c.querySelector('.a-assignee').value||null,category_id:c.querySelector('.a-cat').value||null,status:c.querySelector('.a-status').value})});viewManage();});
+
+  // ----- categories + single visibility save -----
+  $('#catList').innerHTML=cats.map(c=>`<div class="task" data-crow="${c.id}">
+      <div class="th"><div class="tt">${esc(c.name)} ${c.active?'':'<span class="pill grey">inactive</span>'}</div>
+        <div class="row"><button class="btn ghost sm" data-ctog="${c.id}" data-av="${c.active?0:1}">${c.active?'Disable':'Enable'}</button><button class="btn danger sm" data-cdel="${c.id}">${ICON.x}</button></div></div>
+      <div class="meta2" style="margin:8px 0 6px">Visible to:</div>
+      <div class="chips">${people.map(u=>`<label class="chk"><input type="checkbox" class="cvis" value="${u.id}" ${c.visible_to.includes(u.id)?'checked':''}> ${esc(u.name||u.email)}${u.role==='office_boy'?' <span class="muted">(office boy)</span>':''}</label>`).join('')}</div></div>`).join('')||'<p class="empty">No categories.</p>';
+  $$('#catList [data-cdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete category?'))return;await api('/api/admin/task-categories/'+b.dataset.cdel,{method:'DELETE'});viewManage();});
+  $$('#catList [data-ctog]').forEach(b=>b.onclick=async()=>{await api('/api/admin/task-categories/'+b.dataset.ctog,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.av)})});viewManage();});
+  $('#addCat').onclick=async()=>{const n=$('#catName').value.trim();if(!n)return;await api('/api/admin/task-categories',{method:'POST',body:JSON.stringify({name:n})});viewManage();};
+  $('#saveVis').onclick=async()=>{const map={};$$('#catList [data-crow]').forEach(row=>{map[row.dataset.crow]=$$('.cvis',row).filter(x=>x.checked).map(x=>Number(x.value));});
+    try{await api('/api/admin/task-visibility',{method:'PUT',body:JSON.stringify({map})});$('#catMsg').innerHTML=msg('Visibility settings saved.','ok');}catch(e){$('#catMsg').innerHTML=msg(e.message,'err');}};
+}
+
 /* ---------- Admin ---------- */
 async function viewAdmin(){
   const v=$('#view');v.innerHTML='<div class="card"><p class="empty">Loading…</p></div>';
-  const [s,menu,users,cats,tasks,outings,notifs]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users'),api('/api/admin/task-categories'),api('/api/admin/tasks'),api('/api/admin/outings'),api('/api/admin/notifications')]);
+  const [s,menu,users,outings,notifs]=await Promise.all([api('/api/settings'),api('/api/menu'),api('/api/users'),api('/api/admin/outings'),api('/api/admin/notifications')]);
   const link=location.origin+'/boy.html?key='+s.boy_access_key;
-  const employees=users.filter(u=>u.active);
   v.innerHTML=`
     <div class="card"><div class="card-head"><h2>Daily rules</h2></div><div id="setMsg"></div>
       <div class="grid2">
@@ -402,21 +467,6 @@ async function viewAdmin(){
       <h2 style="font-size:14px;margin:0 0 8px">Recent history</h2>
       <div id="notifList"></div></div>
 
-    <div class="card"><div class="card-head"><h2>Tasks — assign</h2></div><div id="taskMsg"></div>
-      <div class="grid2">
-        <div><label>Title</label><input id="ttitle" placeholder="e.g. Deposit cheque at bank"></div>
-        <div><label>Category</label><select id="tcat"><option value="">—</option>${cats.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
-      </div>
-      <label>Assign to</label><select id="tassignee"><option value="">— select employee —</option>${employees.map(u=>`<option value="${u.id}">${esc(u.name||u.email)} (${u.role})</option>`).join('')}</select>
-      <label>Details (optional)</label><textarea id="tdetails" placeholder="Any instructions…"></textarea>
-      <div style="margin-top:12px"><button class="btn" id="addTask">${ICON.plus} Create task</button></div>
-      <hr><div id="adminTasks">${tasks.length?tasks.map(t=>adminTaskRow(t,employees,cats)).join(''):'<p class="empty">No tasks yet.</p>'}</div></div>
-
-    <div class="card"><div class="card-head"><h2>Task categories</h2></div>
-      <div id="catList"></div>
-      <hr><div class="row"><input id="catName" placeholder="New category name"><button class="btn sm" id="addCat">${ICON.plus} Add</button></div>
-      <div id="catMsg"></div></div>
-
     <div class="card"><div class="card-head"><h2>Menu</h2></div><div id="menuList"></div>
       <hr><div class="row wrap-row"><input id="mName" placeholder="New item name"><input id="mPrice" type="number" min="0" step="0.5" placeholder="Price" style="max-width:120px"><button class="btn sm" id="addM">${ICON.plus} Add</button></div></div>
 
@@ -438,14 +488,6 @@ async function viewAdmin(){
   $('#rotate').onclick=async()=>{if(!confirm('Rotate the link? The old link stops working.'))return;await api('/api/admin/boy-key',{method:'POST'});viewAdmin();};
   $('#setPin').onclick=async()=>{try{await api('/api/admin/boy-pin',{method:'PUT',body:JSON.stringify({pin:$('#pin').value.trim()})});viewAdmin();}catch(e){$('#boyMsg').innerHTML=msg(e.message,'err');}};
   $('#clearPin').onclick=async()=>{await api('/api/admin/boy-pin',{method:'PUT',body:JSON.stringify({pin:''})});viewAdmin();};
-  // tasks
-  $('#addTask').onclick=async()=>{const title=$('#ttitle').value.trim();if(!title){$('#taskMsg').innerHTML=msg('Title required','err');return;}
-    try{await api('/api/admin/tasks',{method:'POST',body:JSON.stringify({title,category_id:$('#tcat').value||null,assignee_id:$('#tassignee').value||null,details:$('#tdetails').value})});viewAdmin();}catch(e){$('#taskMsg').innerHTML=msg(e.message,'err');}};
-  $$('#adminTasks [data-tdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this task?'))return;await api('/api/admin/tasks/'+b.dataset.tdel,{method:'DELETE'});viewAdmin();});
-  $$('#adminTasks [data-tup]').forEach(b=>b.onclick=async()=>{const c=b.closest('[data-trow]');await api('/api/admin/tasks/'+b.dataset.tup,{method:'PUT',body:JSON.stringify({assignee_id:c.querySelector('.a-assignee').value||null,category_id:c.querySelector('.a-cat').value||null,status:c.querySelector('.a-status').value})});viewAdmin();});
-  // categories
-  renderCats(cats,employees);
-  $('#addCat').onclick=async()=>{const n=$('#catName').value.trim();if(!n)return;await api('/api/admin/task-categories',{method:'POST',body:JSON.stringify({name:n})});viewAdmin();};
   // menu
   renderMenu(menu);
   $('#addM').onclick=async()=>{const n=$('#mName').value.trim();if(!n)return;await api('/api/menu',{method:'POST',body:JSON.stringify({name:n,price:Number($('#mPrice').value)||0})});viewAdmin();};
@@ -456,18 +498,9 @@ async function viewAdmin(){
   function renderMenu(list){$('#menuList').innerHTML=list.map(m=>`<div class="line" style="grid-template-columns:1fr 100px auto"><span class="nm">${esc(m.name)}${m.available?'':' <span class="muted small">(hidden)</span>'}</span><span class="muted">${money(m.price)}</span><span class="row" style="justify-content:flex-end"><button class="btn ghost sm" data-tog="${m.id}" data-av="${m.available?0:1}">${m.available?'Hide':'Show'}</button><button class="btn danger sm" data-delm="${m.id}">${ICON.x}</button></span></div>`).join('')||'<p class="empty">No items.</p>';
     $$('#menuList [data-delm]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.delm,{method:'DELETE'});viewAdmin();});
     $$('#menuList [data-tog]').forEach(b=>b.onclick=async()=>{await api('/api/menu/'+b.dataset.tog,{method:'PUT',body:JSON.stringify({available:Number(b.dataset.av)})});viewAdmin();});}
-  function renderUsers(list){$('#userList').innerHTML=list.map(u=>`<div class="line" style="grid-template-columns:1fr 1fr 120px 90px"><span class="nm">${esc(u.name||'—')}</span><span class="muted small">${esc(u.email)}</span><select data-role="${u.id}">${['staff','office_boy','admin'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select><button class="btn ghost sm" data-act="${u.id}" data-a="${u.active?0:1}">${u.active?'Disable':'Enable'}</button></div>`).join('');
+  function renderUsers(list){$('#userList').innerHTML=list.map(u=>`<div class="line" style="grid-template-columns:1fr 1fr 130px 90px"><span class="nm">${esc(u.name||'—')}</span><span class="muted small">${esc(u.email)}</span><select data-role="${u.id}">${['staff','staff_admin','office_boy','admin'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select><button class="btn ghost sm" data-act="${u.id}" data-a="${u.active?0:1}">${u.active?'Disable':'Enable'}</button></div>`).join('');
     $$('#userList [data-role]').forEach(sel=>sel.onchange=async()=>{await api('/api/users/'+sel.dataset.role,{method:'PUT',body:JSON.stringify({role:sel.value})});});
     $$('#userList [data-act]').forEach(b=>b.onclick=async()=>{await api('/api/users/'+b.dataset.act,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.a)})});viewAdmin();});}
-  function renderCats(list,emps){$('#catList').innerHTML=list.map(c=>`<div class="task" data-crow="${c.id}">
-      <div class="th"><div class="tt">${esc(c.name)} ${c.active?'':'<span class="pill grey">inactive</span>'}</div>
-        <div class="row"><button class="btn ghost sm" data-ctog="${c.id}" data-av="${c.active?0:1}">${c.active?'Disable':'Enable'}</button><button class="btn danger sm" data-cdel="${c.id}">${ICON.x}</button></div></div>
-      <div class="meta2" style="margin:8px 0 6px">Visible to <span class="muted">(none ticked = everyone)</span>:</div>
-      <div class="chips">${emps.map(u=>`<label class="chk"><input type="checkbox" class="cvis" value="${u.id}" ${c.visible_to.includes(u.id)?'checked':''}> ${esc(u.name||u.email)}</label>`).join('')}</div>
-      <div style="margin-top:8px"><button class="btn ghost sm" data-cvsave="${c.id}">Save visibility</button></div></div>`).join('')||'<p class="empty">No categories.</p>';
-    $$('#catList [data-cdel]').forEach(b=>b.onclick=async()=>{if(!confirm('Delete category?'))return;await api('/api/admin/task-categories/'+b.dataset.cdel,{method:'DELETE'});viewAdmin();});
-    $$('#catList [data-ctog]').forEach(b=>b.onclick=async()=>{await api('/api/admin/task-categories/'+b.dataset.ctog,{method:'PUT',body:JSON.stringify({active:Number(b.dataset.av)})});viewAdmin();});
-    $$('#catList [data-cvsave]').forEach(b=>b.onclick=async()=>{const row=b.closest('[data-crow]');const ids=$$('.cvis',row).filter(x=>x.checked).map(x=>Number(x.value));await api('/api/admin/task-categories/'+b.dataset.cvsave+'/visibility',{method:'PUT',body:JSON.stringify({user_ids:ids})});$('#catMsg').innerHTML=msg('Visibility saved.','ok');});}
   function renderOutings(list){
     const fmt=t=>t?new Date(t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
     $('#outList').innerHTML=list.length?list.map(o=>`<div class="task" data-orow="${o.id}">

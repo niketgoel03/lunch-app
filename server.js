@@ -259,23 +259,23 @@ app.get('/api/orders/mine', auth, wrap(async (req, res) => {
   res.json({ order: o ? await loadOrder(o.id) : null, state: orderingState() });
 }));
 
-const placeOrUpdate = wrap(async (req, res) => {
+// Place or update today's order for a given user. Returns {status,error} or {ok,id}.
+async function placeOrderFor(targetUser, body, placedBy) {
   const st = orderingState();
-  if (!st.isOpen) return res.status(403).json({ error: `Ordering is closed. Cutoff is ${st.cutoffTime} (${st.timezone}).` });
-
+  if (!st.isOpen) return { status: 403, error: `Ordering is closed. Cutoff is ${st.cutoffTime} (${st.timezone}).` };
   let items;
-  try { items = await validateItems(req.body.items, st.allowCustomItems); }
-  catch (e) { return res.status(400).json({ error: e.message }); }
-  const note = String(req.body.note || '').slice(0, 300);
+  try { items = await validateItems(body.items, st.allowCustomItems); }
+  catch (e) { return { status: 400, error: e.message }; }
+  const note = String(body.note || '').slice(0, 300);
 
   const result = await db.tx(async (c) => {
-    const existing = await c.query('SELECT id FROM orders WHERE user_id = $1 AND order_date = $2', [req.user.id, st.today]);
+    const existing = await c.query('SELECT id FROM orders WHERE user_id = $1 AND order_date = $2', [targetUser.id, st.today]);
     let id, isNew = false;
     if (existing.rows[0]) {
       id = existing.rows[0].id;
       await c.query("UPDATE orders SET status = 'placed', note = $1, updated_at = now() WHERE id = $2", [note, id]);
     } else {
-      const r = await c.query('INSERT INTO orders(user_id, order_date, note) VALUES ($1, $2, $3) RETURNING id', [req.user.id, st.today, note]);
+      const r = await c.query('INSERT INTO orders(user_id, order_date, note) VALUES ($1, $2, $3) RETURNING id', [targetUser.id, st.today, note]);
       id = r.rows[0].id; isNew = true;
     }
     await c.query('DELETE FROM order_items WHERE order_id = $1', [id]);
@@ -290,12 +290,28 @@ const placeOrUpdate = wrap(async (req, res) => {
   });
 
   if (result.isNew) {
-    push.sendToRole('office_boy', { title: '🍱 New lunch order', body: `${req.user.name || req.user.email} placed a lunch order`, url: '/', category: 'order' });
+    push.sendToRole('office_boy', { title: '🍱 New lunch order', body: `${targetUser.name || targetUser.email} placed a lunch order`, url: '/', category: 'order' });
   }
-  res.json({ ok: true, order: await loadOrder(result.id), state: orderingState() });
+  if (placedBy && placedBy.id !== targetUser.id) {
+    push.sendToUsers([targetUser.id], { title: '🍱 Order placed for you', body: `${placedBy.name || placedBy.email} placed today's lunch order on your behalf.`, url: '/', category: 'order' });
+  }
+  return { ok: true, id: result.id };
+}
+const selfOrder = wrap(async (req, res) => {
+  const r = await placeOrderFor(req.user, req.body, req.user);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true, order: await loadOrder(r.id), state: orderingState() });
 });
-app.post('/api/orders', auth, placeOrUpdate);
-app.put('/api/orders/mine', auth, placeOrUpdate);
+app.post('/api/orders', auth, selfOrder);
+app.put('/api/orders/mine', auth, selfOrder);
+// Place an order on behalf of a staff member (staff_admin / admin).
+app.post('/api/orders/for/:userId', auth, requireRole('staff_admin', 'admin'), wrap(async (req, res) => {
+  const u = await db.get('SELECT id, email, name FROM users WHERE id = $1 AND active = 1', [Number(req.params.userId)]);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  const r = await placeOrderFor(u, req.body, req.user);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true, order: await loadOrder(r.id), state: orderingState() });
+}));
 
 app.delete('/api/orders/mine', auth, wrap(async (req, res) => {
   const st = orderingState();
@@ -593,7 +609,7 @@ app.get('/api/users', auth, requireRole('admin'), wrap(async (req, res) => {
 app.post('/api/users', auth, requireRole('admin'), wrap(async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const name = String(req.body.name || '').trim().slice(0, 120);
-  const role = ['staff', 'office_boy', 'admin'].includes(req.body.role) ? req.body.role : 'staff';
+  const role = ['staff', 'staff_admin', 'office_boy', 'admin'].includes(req.body.role) ? req.body.role : 'staff';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
   const dup = await db.get('SELECT 1 FROM users WHERE email = $1', [email]);
   if (dup) return res.status(409).json({ error: 'Email already exists' });
@@ -605,13 +621,20 @@ app.put('/api/users/:id', auth, requireRole('admin'), wrap(async (req, res) => {
   const u = await db.get('SELECT * FROM users WHERE id = $1', [id]);
   if (!u) return res.status(404).json({ error: 'Not found' });
   const name = req.body.name !== undefined ? String(req.body.name).trim().slice(0, 120) : u.name;
-  const role = ['staff', 'office_boy', 'admin'].includes(req.body.role) ? req.body.role : u.role;
+  const role = ['staff', 'staff_admin', 'office_boy', 'admin'].includes(req.body.role) ? req.body.role : u.role;
   const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : u.active;
   await db.run('UPDATE users SET name = $1, role = $2, active = $3 WHERE id = $4', [name, role, active, id]);
   res.json({ ok: true });
 }));
 
+// Lightweight active-people list for task assignment / order-on-behalf (no mutations).
+app.get('/api/people', auth, requireRole('staff_admin', 'admin'), wrap(async (req, res) => {
+  res.json(await db.all('SELECT id, name, email, role FROM users WHERE active = 1 ORDER BY name'));
+}));
+
 // ---------- Employee task assignment module ----------
+// Task management (categories, visibility, assignment) is available to STAFF_ADMIN and ADMIN.
+const taskMgr = requireRole('staff_admin', 'admin');
 const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
 const TASK_SELECT = `
   SELECT t.id, t.title, t.details, t.status, t.remarks, t.category_id,
@@ -628,21 +651,21 @@ async function updateTaskStatus(id, status, remarks) {
     [status, remarks === undefined ? null : remarks, completedAt, id]);
 }
 
-// --- Admin: task categories + visibility ---
-app.get('/api/admin/task-categories', auth, requireRole('admin'), wrap(async (req, res) => {
+// --- Task categories + visibility (staff_admin / admin) ---
+app.get('/api/admin/task-categories', auth, taskMgr, wrap(async (req, res) => {
   const cats = await db.all('SELECT id, name, active FROM task_categories ORDER BY name');
   for (const c of cats) {
     c.visible_to = (await db.all('SELECT user_id FROM task_category_visibility WHERE category_id = $1', [c.id])).map((r) => r.user_id);
   }
   res.json(cats);
 }));
-app.post('/api/admin/task-categories', auth, requireRole('admin'), wrap(async (req, res) => {
+app.post('/api/admin/task-categories', auth, taskMgr, wrap(async (req, res) => {
   const name = String(req.body.name || '').trim().slice(0, 80);
   if (!name) return res.status(400).json({ error: 'Name required' });
   const r = await db.get('INSERT INTO task_categories(name) VALUES ($1) RETURNING id', [name]);
   res.json({ ok: true, id: r.id });
 }));
-app.put('/api/admin/task-categories/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+app.put('/api/admin/task-categories/:id', auth, taskMgr, wrap(async (req, res) => {
   const id = Number(req.params.id);
   const c = await db.get('SELECT * FROM task_categories WHERE id = $1', [id]);
   if (!c) return res.status(404).json({ error: 'Not found' });
@@ -651,11 +674,11 @@ app.put('/api/admin/task-categories/:id', auth, requireRole('admin'), wrap(async
   await db.run('UPDATE task_categories SET name = $1, active = $2 WHERE id = $3', [name, active, id]);
   res.json({ ok: true });
 }));
-app.delete('/api/admin/task-categories/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+app.delete('/api/admin/task-categories/:id', auth, taskMgr, wrap(async (req, res) => {
   await db.run('DELETE FROM task_categories WHERE id = $1', [Number(req.params.id)]);
   res.json({ ok: true });
 }));
-app.put('/api/admin/task-categories/:id/visibility', auth, requireRole('admin'), wrap(async (req, res) => {
+app.put('/api/admin/task-categories/:id/visibility', auth, taskMgr, wrap(async (req, res) => {
   const id = Number(req.params.id);
   const ids = Array.isArray(req.body.user_ids) ? req.body.user_ids.map(Number).filter(Boolean) : [];
   await db.tx(async (c) => {
@@ -666,12 +689,27 @@ app.put('/api/admin/task-categories/:id/visibility', auth, requireRole('admin'),
   });
   res.json({ ok: true });
 }));
+// Save ALL categories' visibility in one request: body { map: { categoryId: [userId,...] } }.
+app.put('/api/admin/task-visibility', auth, taskMgr, wrap(async (req, res) => {
+  const map = (req.body && req.body.map) || {};
+  await db.tx(async (c) => {
+    for (const [catId, userIds] of Object.entries(map)) {
+      const cid = Number(catId);
+      if (!cid) continue;
+      await c.query('DELETE FROM task_category_visibility WHERE category_id = $1', [cid]);
+      for (const uid of (Array.isArray(userIds) ? userIds : []).map(Number).filter(Boolean)) {
+        await c.query('INSERT INTO task_category_visibility(category_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [cid, uid]);
+      }
+    }
+  });
+  res.json({ ok: true });
+}));
 
-// --- Admin: tasks ---
-app.get('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) => {
+// --- Tasks (staff_admin / admin) ---
+app.get('/api/admin/tasks', auth, taskMgr, wrap(async (req, res) => {
   res.json(await db.all(`${TASK_SELECT} ${TASK_ORDER}`));
 }));
-app.post('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) => {
+app.post('/api/admin/tasks', auth, taskMgr, wrap(async (req, res) => {
   const title = String(req.body.title || '').trim().slice(0, 160);
   if (!title) return res.status(400).json({ error: 'Title required' });
   const details = String(req.body.details || '').slice(0, 1000);
@@ -687,7 +725,7 @@ app.post('/api/admin/tasks', auth, requireRole('admin'), wrap(async (req, res) =
   if (assigneeId) push.sendToUsers([assigneeId], { title: '🗂️ New task assigned', body: title, url: '/', category: 'task' });
   res.json({ ok: true, id: r.id });
 }));
-app.put('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+app.put('/api/admin/tasks/:id', auth, taskMgr, wrap(async (req, res) => {
   const id = Number(req.params.id);
   const t = await db.get('SELECT * FROM tasks WHERE id = $1', [id]);
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -705,7 +743,7 @@ app.put('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res
   if (assigneeId && assigneeId !== t.assignee_id) push.sendToUsers([assigneeId], { title: '🗂️ New task assigned', body: title, url: '/', category: 'task' });
   res.json({ ok: true });
 }));
-app.delete('/api/admin/tasks/:id', auth, requireRole('admin'), wrap(async (req, res) => {
+app.delete('/api/admin/tasks/:id', auth, taskMgr, wrap(async (req, res) => {
   await db.run('DELETE FROM tasks WHERE id = $1', [Number(req.params.id)]);
   res.json({ ok: true });
 }));
